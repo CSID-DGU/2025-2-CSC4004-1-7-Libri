@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import copy
-import random  # <-- [수정] import random 추가
+import random
 from config import N_AGENTS, LR, TAU, MIXER_EMBED_DIM, BATCH_SIZE, GAMMA
 
 # --- Q-Network (DQN) ---
@@ -121,12 +121,21 @@ class Mixer(nn.Module):
 
 # --- QMIX 학습 관리자 ---
 class QMIX_Learner:
-    def __init__(self, obs_dim, action_dim, state_dim, device):
+    # [수정] obs_dim -> obs_dims_list (리스트)
+    def __init__(self, obs_dims_list, action_dim, state_dim, device):
         self.dvc = device
         self.n_agents = N_AGENTS
         self.action_dim = action_dim
         
-        self.agents = [DQN_Agent(f'agent_{i}', obs_dim, action_dim, device) for i in range(self.n_agents)]
+        # [수정] 에이전트별로 다른 obs_dim을 받아서 생성
+        self.agents = []
+        if len(obs_dims_list) != self.n_agents:
+            raise ValueError(f"obs_dims_list의 길이({len(obs_dims_list)})가 "
+                             f"N_AGENTS({self.n_agents})와 일치하지 않습니다.")
+                             
+        for i in range(self.n_agents):
+            agent_obs_dim = obs_dims_list[i] 
+            self.agents.append(DQN_Agent(f'agent_{i}', agent_obs_dim, action_dim, device))
         
         self.mixer = Mixer(self.n_agents, state_dim, MIXER_EMBED_DIM).to(self.dvc)
         self.target_mixer = copy.deepcopy(self.mixer)

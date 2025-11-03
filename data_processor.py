@@ -1,11 +1,12 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+from sklearn.preprocessing import StandardScaler, MinMaxScaler # [추가]
 
 # --- Config ---
 from config import TICKER, VIX_TICKER, START_DATE, END_DATE
 
-# ---- pandas-ta 호환 래퍼 ---------------------------------------
+# ---- pandas-ta 호환 래퍼 (이하 동일) -----------------------------
 try:
     import pandas_ta as ta
     _USING_PANDAS_TA = True
@@ -73,8 +74,14 @@ class DataProcessor:
         self.vix_ticker = vix_ticker
         self.start = start
         self.end = end
+        
+        # [수정] 피처 목록 세분화
         self.features = []
+        self.agent_0_features = [] # 단기 트레이더 피처
+        self.agent_1_features = [] # 추세 추종자 피처
+        
         self.original_prices = None
+        self.scalers = {}
 
     def _flatten_cols(self, df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(df.columns, pd.MultiIndex):
@@ -141,7 +148,8 @@ class DataProcessor:
             df.index = pd.to_datetime(df.index).tz_localize(None)
         except Exception:
             pass
-
+            
+        df = df.sort_index() # [추가] merge_asof를 위해 인덱스 정렬
         return df
 
     def calculate_features(self, df):
@@ -200,14 +208,20 @@ class DataProcessor:
                 df_fund['DebtRatio'] = total_liab / total_assets
 
                 df_fund.index = pd.to_datetime(df_fund.index)
+                
+                # [수정] 재무제표 데이터 누수 해결 (2개월 공시 지연 적용)
+                print("... 재무제표에 2개월 공시 지연(lag) 적용 ...")
+                df_fund.index = df_fund.index + pd.DateOffset(months=2)
+                
                 try:
                     df_fund = df_fund.tz_localize(None)
                 except Exception:
                     pass
                 
                 df_fund_daily = df_fund.resample('D').ffill()
-                df_fund_daily = df_fund_daily.reindex(df.index).ffill().fillna(0.0) 
-                df = df.join(df_fund_daily)
+                # [수정] reindex 대신 merge_asof 사용 (더 안전함)
+                df = pd.merge_asof(df, df_fund_daily, left_index=True, right_index=True, direction='backward')
+                df[['ROA', 'DebtRatio']] = df[['ROA', 'DebtRatio']].ffill().fillna(0.0)
                 
             else:
                 print("경고: 재무제표(ROA, DebtRatio)를 가져올 수 없습니다. 0으로 채웁니다.")
@@ -218,10 +232,10 @@ class DataProcessor:
             df['ROA'] = 0.0
             df['DebtRatio'] = 0.0
 
-        print("애널리스트 추천 정보 가져오는 중...")
+        # [수정] 애널리스트 평가 데이터 누수 해결
+        print("애널리스트 추천 정보 (시계열) 가져오는 중...")
         try:
             rec = self.ticker_obj.recommendations
-
             if rec is None or rec.empty:
                 raise Exception("추천 정보 데이터가 비어있음")
 
@@ -229,79 +243,135 @@ class DataProcessor:
             if not all(col in rec.columns for col in required_cols):
                 raise Exception(f"필요한 컬럼({required_cols})이 없음. 현재 컬럼: {list(rec.columns)}")
 
-            latest_rec = rec.iloc[0]
+            # 날짜 인덱스 정리
+            try:
+                rec.index = pd.to_datetime(rec.index).tz_localize(None)
+            except Exception:
+                pass # 이미 naive일 수 있음
+            rec = rec.sort_index()
 
-            score_buy = (latest_rec['strongBuy'] * 1.5) + (latest_rec['buy'] * 1.0)
-            score_sell = (latest_rec['sell'] * 1.0) + (latest_rec['strongSell'] * 1.5)
-            total_count = latest_rec[required_cols].sum()
-
-            if total_count == 0:
-                weighted_score = 0.0
-            else:
-                weighted_score = (score_buy - score_sell) / total_count
+            # 각 날짜(행)별로 점수 계산
+            score_buy = (rec['strongBuy'] * 1.5) + (rec['buy'] * 1.0)
+            score_sell = (rec['sell'] * 1.0) + (rec['strongSell'] * 1.5)
+            total_count = rec[required_cols].sum(axis=1)
             
-            df['AnalystRating'] = weighted_score
+            rec_scores = pd.DataFrame(index=rec.index)
+            # 0으로 나누는 것 방지
+            rec_scores['AnalystRating'] = (score_buy - score_sell) / (total_count + 1e-9)
+            rec_scores = rec_scores.fillna(0.0)
+
+            # merge_asof: df의 날짜를 기준으로, 그 날짜와 가장 가깝거나 이전인 rec_scores의 점수를 할당
+            df = pd.merge_asof(df, rec_scores, left_index=True, right_index=True, direction='backward')
+            df['AnalystRating'] = df['AnalystRating'].ffill().fillna(0.0) # 혹시 모를 초기 결측치 채우기
 
         except Exception as e:
             print(f"경고: 애널리스트 추천 정보({e})를 가져올 수 없습니다. 0으로 채웁니다.")
             df['AnalystRating'] = 0.0
 
-        self.features = [
+
+        # [수정] 피처 목록을 역할별로 명확히 분리
+        # (Close, High, Low, Volume, VIX 등 핵심 가격 정보는 둘 다에게 공통으로 제공)
+        
+        self.agent_0_features = [ # 단기/변동성
             'Close', 'High', 'Low', 'Volume', 'VIX',
-            'SMA20', 'MACD', 'MACD_Signal', 'RSI', 'Stoch_K', 'Stoch_D', 'ATR', 'Bollinger_B',
+            'RSI', 'Stoch_K', 'Stoch_D', 'ATR', 'Bollinger_B'
+        ]
+        
+        self.agent_1_features = [ # 장기/추세/펀더멘탈
+            'Close', 'High', 'Low', 'Volume', 'VIX',
+            'SMA20', 'MACD', 'MACD_Signal',
             'ROA', 'DebtRatio', 'AnalystRating'
         ]
+        
+        # [수정] self.features는 두 리스트의 합집합 (중복 제거)
+        self.features = sorted(list(set(self.agent_0_features + self.agent_1_features)))
 
         df = df.dropna()
         return df
 
-    def normalize_data(self, df):
-        print("데이터 정규화 중...")
-        self.original_prices = df['Close'].copy()
+    # [수정] normalize_data 함수 변경
+    # (self, df) -> (self, df_train, df_test)
+    def normalize_data(self, df_train, df_test):
+        print("데이터 정규화 중 (Train-Test 분리 적용)...")
         
-        for col in ['Close', 'High', 'Low', 'SMA20']:
-            if col in df.columns:
-                df[col] = (df[col] / (df[col].iloc[0] + 1e-9)) - 1.0
+        df_train_norm = df_train.copy()
+        df_test_norm = df_test.copy()
+        
+        # 1. 가격 기반 정규화 (x / x_train[0]) - 1.0
+        #    Test 데이터도 Train의 첫 번째 값으로 정규화
+        price_cols = ['Close', 'High', 'Low', 'SMA20']
+        for col in price_cols:
+            if col in df_train_norm.columns:
+                first_val = df_train[col].iloc[0] + 1e-9
+                df_train_norm[col] = (df_train_norm[col] / first_val) - 1.0
+                df_test_norm[col] = (df_test_norm[col] / first_val) - 1.0
+                self.scalers[col] = {'type': 'price', 'first_val': first_val}
 
-        for col in ['Volume', 'ATR', 'VIX']:
-            if col in df.columns:
-                df[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min() + 1e-9)
+        # 2. MinMaxScaler (Volume, ATR, VIX)
+        #    Train 데이터로 fit, Train/Test 데이터에 transform
+        minmax_cols = ['Volume', 'ATR', 'VIX']
+        for col in minmax_cols:
+            if col in df_train_norm.columns:
+                scaler = MinMaxScaler()
+                df_train_norm[col] = scaler.fit_transform(df_train_norm[[col]])
+                df_test_norm[col] = scaler.transform(df_test_norm[[col]])
+                self.scalers[col] = scaler
 
-        for col in ['MACD', 'MACD_Signal', 'ROA', 'DebtRatio']:
-            if col in df.columns:
-                df[col] = (df[col] - df[col].mean()) / (df[col].std() + 1e-9)
+        # 3. StandardScaler (MACD, ... AnalystRating)
+        #    Train 데이터로 fit, Train/Test 데이터에 transform
+        std_cols = ['MACD', 'MACD_Signal', 'ROA', 'DebtRatio', 'AnalystRating']
+        for col in std_cols:
+            if col in df_train_norm.columns:
+                scaler = StandardScaler()
+                df_train_norm[col] = scaler.fit_transform(df_train_norm[[col]])
+                df_test_norm[col] = scaler.transform(df_test_norm[[col]])
+                self.scalers[col] = scaler
 
-        for col in ['RSI', 'Stoch_K', 'Stoch_D']:
-            if col in df.columns:
-                df[col] = df[col] / 100.0
+        # 4. 100으로 나누기 (고정 스케일)
+        ratio_cols = ['RSI', 'Stoch_K', 'Stoch_D']
+        for col in ratio_cols:
+            if col in df_train_norm.columns:
+                df_train_norm[col] = df_train_norm[col] / 100.0
+                df_test_norm[col] = df_test_norm[col] / 100.0
+                self.scalers[col] = {'type': 'ratio_100'}
 
-        if 'AnalystRating' in df.columns:
-            # 0으로만 채워진 경우 std()가 0이 되어 NaN이 될 수 있으므로 분모에 1e-9 추가
-            df['AnalystRating'] = (df['AnalystRating'] - df['AnalystRating'].mean()) / (df['AnalystRating'].std() + 1e-9)
+        # 5. Clipping (고정 스케일)
+        if 'Bollinger_B' in df_train_norm.columns:
+            df_train_norm['Bollinger_B'] = np.clip(df_train_norm['Bollinger_B'], -1, 2)
+            df_test_norm['Bollinger_B'] = np.clip(df_test_norm['Bollinger_B'], -1, 2)
+            self.scalers['Bollinger_B'] = {'type': 'clip_m1_2'}
 
-        if 'Bollinger_B' in df.columns:
-            df['Bollinger_B'] = np.clip(df['Bollinger_B'], -1, 2)
+        df_train_norm = df_train_norm.fillna(0)
+        df_test_norm = df_test_norm.fillna(0)
+        
+        return df_train_norm, df_test_norm
 
-        df = df.fillna(0)
-        return df
-
+    # [수정] process 함수에서 정규화 로직 제거
     def process(self):
         if not _USING_PANDAS_TA:
             print("[알림] pandas-ta를 찾지 못하여 'ta' 라이브러리로 대체했습니다.")
              
         df = self.fetch_data()
-        df_features = self.calculate_features(df)
+        df_features = self.calculate_features(df) # 데이터 누수 해결된 피처
         
-        df_features_unnormalized = df_features.copy()
+        # 원본 가격 데이터 저장 (정규화 전에)
+        self.original_prices = df_features['Close'].copy()
         
-        df_normalized = self.normalize_data(df_features_unnormalized.copy()) 
-
-        self.original_prices = self.original_prices.reindex(df_normalized.index).dropna()
-        df_normalized = df_normalized.reindex(self.original_prices.index).dropna()
+        # original_prices와 df_features의 인덱스를 맞춤
+        self.original_prices = self.original_prices.reindex(df_features.index).dropna()
         df_features = df_features.reindex(self.original_prices.index).dropna()
 
-        print(f"--- 데이터 처리 완료 ---")
-        print(f"총 {len(df_normalized)}일의 데이터")
+        print(f"--- 데이터 처리 완료 (정규화 전) ---")
+        print(f"총 {len(df_features)}일의 데이터")
         print(f"사용된 지표 (총 {len(self.features)}개): {', '.join(self.features)}")
+        print(f"  - Agent 0 (단기): {len(self.agent_0_features)}개")
+        print(f"  - Agent 1 (장기): {len(self.agent_1_features)}개")
 
-        return df_normalized[self.features], df_features[self.features], self.original_prices, self.features
+        # [수정] 정규화되지 않은 df, 원본 가격, 피처 목록 *3개* 반환
+        return (
+            df_features[self.features], 
+            self.original_prices, 
+            self.features,
+            self.agent_0_features, # <--- 추가
+            self.agent_1_features  # <--- 추가
+        )

@@ -146,35 +146,60 @@ def main():
     print(f"사용 장치: {DEVICE}")
 
     processor = DataProcessor()
-    features_df, features_unnormalized_df, prices_df, feature_names = processor.process()
+    
+    # [수정] 1. processor.process() 반환값이 5개로 늘어남
+    (features_unnormalized_df, prices_df, feature_names,
+     agent_0_cols, agent_1_cols) = processor.process()
 
-    split_idx = int(len(features_df) * 0.8)
+    split_idx = int(len(features_unnormalized_df) * 0.8)
     if split_idx < WINDOW_SIZE * 2:
         print("오류: 데이터가 너무 적어 훈련/테스트 분리가 불가능합니다.")
         return
 
-    train_features = features_df.iloc[:split_idx]
+    # [수정] 2. 정규화 *안 된* 데이터를 train/test로 분리
+    train_features_unnorm = features_unnormalized_df.iloc[:split_idx]
     train_prices = prices_df.iloc[:split_idx]
     
-    test_features = features_df.iloc[split_idx:]
+    test_features_unnorm = features_unnormalized_df.iloc[split_idx:]
     test_prices = prices_df.iloc[split_idx:]
-    test_features_unnormalized = features_unnormalized_df.iloc[split_idx:]
 
-    train_env = MARLStockEnv(train_features, train_prices, n_agents=N_AGENTS, window_size=WINDOW_SIZE)
-    test_env = MARLStockEnv(test_features, test_prices, n_agents=N_AGENTS, window_size=WINDOW_SIZE)
+    # [수정] 3. DataProcessor의 새 정규화 함수로 train/test 정규화
+    #    (fit on train, transform on train/test)
+    train_features, test_features = processor.normalize_data(
+        train_features_unnorm, 
+        test_features_unnorm
+    )
+
+    # [수정] 4. Env 생성자에 피처 목록 전달
+    train_env = MARLStockEnv(
+        train_features, train_prices, 
+        agent_0_cols, agent_1_cols, # <--- 추가
+        n_agents=N_AGENTS, window_size=WINDOW_SIZE
+    )
+    test_env = MARLStockEnv(
+        test_features, test_prices, 
+        agent_0_cols, agent_1_cols, # <--- 추가
+        n_agents=N_AGENTS, window_size=WINDOW_SIZE
+    )
     
-    obs_dim = train_env.observation_dim
+    # [수정] 3. obs_dim을 리스트로 관리
+    obs_dim_0 = train_env.observation_dim_0
+    obs_dim_1 = train_env.observation_dim_1
+    obs_dims_list = [obs_dim_0, obs_dim_1] # (N_AGENTS=2 가정)
+    
     state_dim = train_env.state_dim
     action_dim = train_env.action_dim
-    n_features = train_env.n_features
+    n_features = train_env.n_features_global # (전체 피처 개수)
 
-    learner = QMIX_Learner(obs_dim, action_dim, state_dim, DEVICE)
+    # [수정] 4. Learner에 obs_dims_list 전달
+    learner = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
     buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, DEVICE)
 
     total_steps = 0
-
+    
     print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
-    print(f"--- (확장된) 관측(Obs) 차원: {obs_dim}, 글로벌 상태(State) 차원: {state_dim} ---")
+    # [수정] Obs 차원 출력
+    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기) | 글로벌 상태 차원: {state_dim} ---")
     
     for i_episode in range(NUM_EPISODES):
         obs_dict, info = train_env.reset(initial_portfolio=None) 
@@ -270,15 +295,29 @@ def main():
     best_joint_action_idx_flat = all_q_totals.argmax().item()
     best_joint_action_indices = action_pairs[best_joint_action_idx_flat]
 
+    # [수정] 5. XAI 파트에서 에이전트별 피처 정보 정확히 전달
     agent_analyses = []
+    feature_names_list = [agent_0_cols, agent_1_cols] # 에이전트별 피처 이름 리스트
+    n_features_list = [train_env.n_features_agent_0, train_env.n_features_agent_1] # 에이전트별 피처 개수 리스트
+    
     for i, agent in enumerate(learner.agents):
         obs = final_obs_dict[f'agent_{i}']
-        action_idx, q_values, importance = agent.get_prediction_with_reason(obs, feature_names, WINDOW_SIZE, n_features)
-        agent_analyses.append((action_idx, q_values, importance))
+        agent_feature_names = feature_names_list[i] # 해당 에이전트의 피처 이름
+        n_features_agent = n_features_list[i]       # 해당 에이전트의 피처 개수
 
+        action_idx, q_values, importance = agent.get_prediction_with_reason(
+            obs, 
+            agent_feature_names, # <-- 수정됨
+            WINDOW_SIZE, 
+            n_features_agent     # <-- 수정됨
+        )
+        agent_analyses.append((action_idx, q_values, importance))
+        
     final_signal = convert_joint_action_to_signal(best_joint_action_indices, action_map)
     ai_explanation = generate_ai_explanation(final_signal, agent_analyses)
-    current_indicator_values = test_features_unnormalized.iloc[-1]
+    
+    # [수정] 5. UI 출력에는 정규화 *안 된* (test_features_unnorm) 데이터 전달
+    current_indicator_values = test_features_unnorm.iloc[-1]
     
     # --- 2. UI 포맷으로 출력 ---
     print_ui_output(
