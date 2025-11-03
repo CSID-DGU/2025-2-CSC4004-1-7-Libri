@@ -1,5 +1,7 @@
 import argparse
 import torch
+import numpy as np
+import pandas as pd
 
 from config import (
     DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
@@ -86,7 +88,7 @@ def print_ui_output(
             
     print("\n    (펀더멘탈 및 기타 데이터)\n")
     for indicator in fundamental_indicators:
-        if indicator in current_indicators:
+        if indicator in fundamental_indicators:
             print(f"    - {indicator:<13}: {current_indicators[indicator]:.2f}")
             
     print("\n--- 4. (참고) 상세 Q_total 그리드 ---")
@@ -236,7 +238,7 @@ def main():
 
     print("--- 학습 완료 ---")
 
-    print("\n--- 최종일 예측 분석 중 ---")
+    print("\n--- [1] 전체 테스트 기간 백테스트 수행 중 ---")
     
     if user_portfolio['positions'][0] != 0:
         pos_str = "Long" if user_portfolio['positions'][0] == 1 else "Short"
@@ -247,16 +249,54 @@ def main():
     obs_dict, info = test_env.reset(initial_portfolio=user_portfolio)
     global_state = info["global_state"]
     
+    # [백테스트 수정] 수익을 기록할 리스트
+    all_team_rewards = []
+    
     current_step = 0
     while current_step < test_env.max_steps:
         actions_dict = learner.select_actions(obs_dict, 0.0) # Epsilon = 0.0
-        obs_dict, _, dones_dict, _, info = test_env.step(actions_dict)
+        obs_dict, rewards_dict, dones_dict, _, info = test_env.step(actions_dict)
+        
+        all_team_rewards.append(rewards_dict['agent_0']) # <-- 일별 수익 기록
+        
         global_state = info["global_state"]
         current_step += 1
         if dones_dict['__all__']:
             break
 
-    # --- 1. UI에 필요한 데이터 계산 ---
+    # [백테스트 수정] 백테스트 결과 계산
+    print("\n--- [2] 백테스트 성능 지표 (신뢰도/정확도) ---")
+    
+    test_days = len(all_team_rewards)
+    if test_days > 0:
+        all_rewards_series = pd.Series(all_team_rewards)
+        
+        # 1. 누적 수익 (환경의 reward는 가격 변화량 기준이므로 합산)
+        total_pnl = all_rewards_series.sum()
+        
+        # 2. 연간 샤프 비율 (일별 수익률 기준, 무위험 이자율 0 가정)
+        #    (주의: 현재 reward는 '수익률'이 아닌 '수익금액'이므로 샤프비율의 의미가 다소 다름)
+        daily_std = all_rewards_series.std() + 1e-9
+        sharpe_ratio = (all_rewards_series.mean() / daily_std) * np.sqrt(252) # 252: 연간 거래일
+        
+        # 3. 승률 (일별 수익이 0보다 큰 날의 비율)
+        win_days = (all_rewards_series > 0).sum()
+        win_rate = (win_days / test_days) * 100.0
+        
+        print(f"    - 백테스트 기간    : {test_days} 일")
+        print(f"    - 누적 팀 수익(PnL) : {total_pnl:.2f} (환경 기준 점수)")
+        print(f"    - 일 평균 수익     : {all_rewards_series.mean():.2f}")
+        print(f"    - 일 수익 변동성   : {daily_std:.2f}")
+        print(f"    - 샤프 비율 (연환산): {sharpe_ratio:.3f}")
+        print(f"    - 승률 (일별)      : {win_rate:.2f} % ({win_days} / {test_days} 일)")
+    else:
+        print("    - 백테스트 기간이 0일이어서 성능을 측정할 수 없습니다.")
+
+
+    # --- [3] 최종일 상세 분석 (기존 UI) ---
+    print("\n--- [3] 최종일 예측 상세 분석 ---")
+    
+    # 이 섹션은 루프가 끝난 뒤의 'final_obs_dict'를 사용하므로 수정 필요 없음
     final_obs_dict = obs_dict
     action_map = {0: "Long", 1: "Hold", 2: "Short"}
     action_indices = list(action_map.keys())
