@@ -42,9 +42,12 @@
 **1. 주요 라이브러리 설치**
 
 ```
-pip install torch gymnasium yfinance pandas numpy scikit-learn pandas-ta
-# 또는 'ta' 라이브러리
-# pip install ta
+# 1. Conda 환경 만들기
+conda create -n qmix python=3.12.7 -y
+conda activate qmix
+
+# 2. requirements.txt 기반 설치
+pip install -r requirements.txt
 ```
 **2. 실행**
 기본 실행 (포트폴리오 없이 시작):
