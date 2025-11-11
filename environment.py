@@ -2,9 +2,9 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from config import N_AGENTS, WINDOW_SIZE
+from collections import deque
 
 class MARLStockEnv(gym.Env):
-    # [수정] 생성자 인자에 agent_2_cols 추가
     def __init__(self, features_df, prices_df, 
                  agent_0_cols, agent_1_cols, agent_2_cols, 
                  n_agents=N_AGENTS, window_size=WINDOW_SIZE):
@@ -22,29 +22,26 @@ class MARLStockEnv(gym.Env):
         all_feature_cols = list(features_df.columns)
         self.agent_0_indices = [all_feature_cols.index(col) for col in agent_0_cols if col in all_feature_cols]
         self.agent_1_indices = [all_feature_cols.index(col) for col in agent_1_cols if col in all_feature_cols]
-        # [추가] Agent 2 인덱스
         self.agent_2_indices = [all_feature_cols.index(col) for col in agent_2_cols if col in all_feature_cols]
         
         self.n_features_agent_0 = len(self.agent_0_indices)
         self.n_features_agent_1 = len(self.agent_1_indices)
-        self.n_features_agent_2 = len(self.agent_2_indices) # [추가]
+        self.n_features_agent_2 = len(self.agent_2_indices)
         self.n_features_global = len(all_feature_cols)
 
-        # Obs: Market Data (Sub-set) + Pos Signal (1) + P/L (1)
         self.observation_dim_0 = self.window_size * self.n_features_agent_0 + 2
         self.observation_dim_1 = self.window_size * self.n_features_agent_1 + 2
-        self.observation_dim_2 = self.window_size * self.n_features_agent_2 + 2 # [추가]
+        self.observation_dim_2 = self.window_size * self.n_features_agent_2 + 2
         
         self.state_dim = self.window_size * self.n_features_global + (self.n_agents * 2)
         
-        # [수정] Observation Space에 agent_2 추가
         self.observation_space = spaces.Dict({
             'agent_0': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_0,), dtype=np.float32),
             'agent_1': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_1,), dtype=np.float32),
             'agent_2': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_2,), dtype=np.float32)
         })
         
-        self.action_dim = 3 # (행동은 동일)
+        self.action_dim = 3
         self.action_space = spaces.Dict({
             f'agent_{i}': spaces.Discrete(self.action_dim) for i in range(self.n_agents)
         })
@@ -53,6 +50,10 @@ class MARLStockEnv(gym.Env):
         self.positions = [0] * self.n_agents
         self.entry_prices = [0.0] * self.n_agents
         
+        #샤프 비율 보상을 위한 변동성 계산기
+        self.reward_history = deque(maxlen=20) # 최근 20일간의 팀 수익률을 저장
+        self.reward_history.append(0.0) # 초기값
+
     def _get_obs_and_state(self):
         start = self.current_step
         end = start + self.window_size
@@ -61,12 +62,12 @@ class MARLStockEnv(gym.Env):
         
         market_data_agent_0 = market_data_global_windowed[:, self.agent_0_indices]
         market_data_agent_1 = market_data_global_windowed[:, self.agent_1_indices]
-        market_data_agent_2 = market_data_global_windowed[:, self.agent_2_indices] # [추가]
+        market_data_agent_2 = market_data_global_windowed[:, self.agent_2_indices]
 
         market_data_global_flat = market_data_global_windowed.flatten()
         market_data_agent_0_flat = market_data_agent_0.flatten()
         market_data_agent_1_flat = market_data_agent_1.flatten()
-        market_data_agent_2_flat = market_data_agent_2.flatten() # [추가]
+        market_data_agent_2_flat = market_data_agent_2.flatten()
             
         current_price = self.prices.iloc[self.current_step + self.window_size - 1]
         
@@ -86,7 +87,6 @@ class MARLStockEnv(gym.Env):
             
             own_portfolio_state = np.array([pos_signal, unrealized_return_pct], dtype=np.float32)
             
-            # [수정] 에이전트별로 다른 Market Data 주입 (Agent 2 추가)
             if i == 0:
                 obs_flat = market_data_agent_0_flat
             elif i == 1:
@@ -94,15 +94,12 @@ class MARLStockEnv(gym.Env):
             elif i == 2:
                 obs_flat = market_data_agent_2_flat
             else:
-                # 4번째 에이전트 이상일 경우 글로벌 데이터 사용 (예외 처리)
                 obs_flat = market_data_global_flat
                 
             observations[f'agent_{i}'] = np.concatenate([obs_flat, own_portfolio_state])
-                
             global_portfolio_state.append(own_portfolio_state)
             
         global_state = np.concatenate([market_data_global_flat, np.concatenate(global_portfolio_state)])
-            
         return observations, global_state
 
     def reset(self, seed=None, initial_portfolio=None):
@@ -115,6 +112,9 @@ class MARLStockEnv(gym.Env):
         else:
             self.positions = [0] * self.n_agents
             self.entry_prices = [0.0] * self.n_agents
+            
+        self.reward_history.clear()
+        self.reward_history.append(0.0)
             
         obs, state = self._get_obs_and_state()
         return obs, {"global_state": state}
@@ -136,7 +136,7 @@ class MARLStockEnv(gym.Env):
             current_pos = self.positions[i]
 
             if action == 0: # Buy
-                if current_pos == -1:
+                if current_pos == -1: # Short 청산
                     instant_rewards += -(new_price - self.entry_prices[i])
                 self.positions[i] = 1
                 if current_pos != 1: 
@@ -144,17 +144,32 @@ class MARLStockEnv(gym.Env):
             elif action == 1: # Hold
                 pass
             elif action == 2: # Sell
-                if current_pos == 1:
+                if current_pos == 1: # Long 청산
                     instant_rewards += (new_price - self.entry_prices[i])
                 self.positions[i] = -1
                 if current_pos != -1:
                     self.entry_prices[i] = float(new_price)
-
-        # QMIX는 팀 보상(Team Reward)을 사용
-        # 모든 에이전트의 포지션을 합산하여 보상 계산
+        
+        # 1. 원본 수익(P/L) 계산
         joint_position = sum(self.positions)
         holding_reward = float(joint_position * price_change)
-        team_reward = holding_reward + instant_rewards
+        team_reward_raw = holding_reward + instant_rewards # <-- 원본 수익 금액
+
+        # 2. 수익률(Return) 계산
+        #    (팀 보상을 old_price로 나누어 수익률로 변환)
+        #    (old_price가 0이 되는 극단적인 경우 방지)
+        team_return_pct = 0.0
+        if old_price > 1e-6:
+            team_return_pct = team_reward_raw / old_price
+        
+        self.reward_history.append(team_return_pct)
+
+        # 3. 최근 20일간의 수익 변동성(표준편차) 계산
+        daily_volatility = np.std(self.reward_history) + 1e-9 # 0으로 나누기 방지
+
+        # 4. 최종 보상 = (수익률 / 변동성) (샤프 비율과 유사)
+        #    (수익이 0이더라도 변동성이 낮으면(분모가 작으면) 보상이 커짐 -> Hold 장려)
+        team_reward = team_return_pct / daily_volatility
 
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         
@@ -163,4 +178,6 @@ class MARLStockEnv(gym.Env):
         dones = {f'agent_{i}': done for i in range(self.n_agents)}
         dones['__all__'] = done
         
-        return next_obs, rewards, dones, False, {"global_state": next_state}
+        info = {"global_state": next_state, "raw_pnl": team_reward_raw}
+        
+        return next_obs, rewards, dones, False, info
