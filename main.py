@@ -12,23 +12,25 @@ from environment import MARLStockEnv
 from qmix_model import QMIX_Learner
 from replay_buffer import ReplayBuffer
 
-# --- UI 출력 헬퍼 함수 ---
+# --- [수정] 3개 에이전트의 신호 변환 ---
 def convert_joint_action_to_signal(joint_action, action_map):
     action_to_score = {"Long": 1, "Hold": 0, "Short": -1}
+    # (joint_action은 (a0, a1, a2) 튜플이 됨)
     score = sum(action_to_score[action_map[a]] for a in joint_action)
     
-    if score == 2:
+    if score >= 3:
         return "적극 매수"
-    elif score == 1:
+    elif score == 2 or score == 1:
         return "매수"
     elif score == 0:
         return "보유"
-    elif score == -1:
+    elif score == -1 or score == -2:
         return "매도"
-    elif score == -2:
+    elif score <= -3:
         return "적극 매도"
-    return "보유"
+    return "보유" # 기본값
 
+# --- (generate_ai_explanation 함수는 수정 불필요) ---
 def generate_ai_explanation(final_signal, agent_analyses):
     all_importances = {}
     for _, _, importance_list in agent_analyses:
@@ -55,11 +57,12 @@ def generate_ai_explanation(final_signal, agent_analyses):
         
     return explanation
 
+# --- [수정] 3D 그리드를 출력하도록 UI 함수 수정 ---
 def print_ui_output(
     final_signal, 
     ai_explanation, 
     current_indicators, 
-    q_total_grid, 
+    q_total_grid, # (3D 텐서: A0, A1, A2)
     best_q_total_value, 
     action_names
 ):
@@ -88,58 +91,46 @@ def print_ui_output(
             
     print("\n    (펀더멘탈 및 기타 데이터)\n")
     for indicator in fundamental_indicators:
-        if indicator in fundamental_indicators:
+         if indicator in current_indicators:
             print(f"    - {indicator:<13}: {current_indicators[indicator]:.2f}")
             
     print("\n--- 4. (참고) 상세 Q_total 그리드 ---")
     print("    (모든 행동 조합의 Q_total 값입니다.)\n")
     
-    col_names = " (A0)       | " + " | ".join([f"{name.center(10)}" for name in action_names]) + " (A1)"
-    print("    " + col_names)
-    print("    " + "-" * (11 + (13 * len(action_names))))
-    
-    for i, a0_name in enumerate(action_names):
-        row_str = f" {a0_name:<9} | "
-        for j in range(len(action_names)):
-            row_str += f"{q_total_grid[i, j]:>10.4f} | "
-        print("    " + row_str)
+    # 3D 그리드를 2D 그리드 3개로 나누어 출력 (Agent 2를 기준으로)
+    for k, a2_name in enumerate(action_names):
+        print(f"    --- [Agent 2 (위험) = {a2_name}] ---")
+        col_names = " (A0)       | " + " | ".join([f"{name.center(10)}" for name in action_names]) + " (A1)"
+        print("    " + col_names)
+        print("    " + "-" * (11 + (13 * len(action_names))))
+        
+        for i, a0_name in enumerate(action_names):
+            row_str = f" {a0_name:<9} | "
+            for j in range(len(action_names)):
+                # q_total_grid[i, j, k] (A0, A1, A2 순서)
+                row_str += f"{q_total_grid[i, j, k]:>10.4f} | "
+            print("    " + row_str)
+        print("") # 한 그리드 후 공백
         
     print("=============================================")
 
 
 # --- 메인 실행 함수 ---
 def main():
-    # '수량'과 '평단가' 터미널 인수 파서
     parser = argparse.ArgumentParser(description="QMIX Stock Trading AI")
-    parser.add_argument(
-        '--quantity', 
-        type=int, 
-        default=0, 
-        help="사용자의 현재 보유 주식 수량 (예: 100)"
-    )
-    parser.add_argument(
-        '--price', 
-        type=float, 
-        default=0.0, 
-        help="사용자의 평단가 (예: 85000)"
-    )
+    parser.add_argument('--quantity', type=int, default=0, help="사용자의 현재 보유 주식 수량 (예: 100)")
+    parser.add_argument('--price', type=float, default=0.0, help="사용자의 평단가 (예: 85000)")
     args = parser.parse_args()
     
-    # 입력된 인수를 모델 내부 포맷으로 변환
     pos_signal = 0
     entry_price = 0.0
-    
-    if args.quantity > 0:
-        pos_signal = 1
-        entry_price = args.price
-    elif args.quantity < 0:
+    if args.quantity > 0: pos_signal = 1
+    elif args.quantity < 0: 
         print("경고: 마이너스 수량이 입력되었습니다. '숏' 포지션으로 간주합니다.")
         pos_signal = -1
-        entry_price = args.price
-    else: # quantity == 0
-        pos_signal = 0
-        entry_price = 0.0
+    if pos_signal != 0: entry_price = args.price
             
+    # (N_AGENTS=3이므로 3개 리스트가 됨)
     user_portfolio = {
         'positions': [pos_signal] * N_AGENTS,
         'entry_prices': [entry_price] * N_AGENTS
@@ -149,64 +140,62 @@ def main():
 
     processor = DataProcessor()
     
-    # [수정] 1. processor.process() 반환값이 5개로 늘어남
+    # [수정] 1. processor.process() 반환값이 6개로 늘어남
     (features_unnormalized_df, prices_df, feature_names,
-     agent_0_cols, agent_1_cols) = processor.process()
+     agent_0_cols, agent_1_cols, agent_2_cols) = processor.process() # <-- 수정
 
     split_idx = int(len(features_unnormalized_df) * 0.8)
     if split_idx < WINDOW_SIZE * 2:
         print("오류: 데이터가 너무 적어 훈련/테스트 분리가 불가능합니다.")
         return
 
-    # [수정] 2. 정규화 *안 된* 데이터를 train/test로 분리
     train_features_unnorm = features_unnormalized_df.iloc[:split_idx]
     train_prices = prices_df.iloc[:split_idx]
-    
     test_features_unnorm = features_unnormalized_df.iloc[split_idx:]
     test_prices = prices_df.iloc[split_idx:]
 
-    # [수정] 3. DataProcessor의 새 정규화 함수로 train/test 정규화
-    #    (fit on train, transform on train/test)
+    # [수정] 2. 정규화
     train_features, test_features = processor.normalize_data(
         train_features_unnorm, 
         test_features_unnorm
     )
 
-    # [수정] 4. Env 생성자에 피처 목록 전달
+    # [수정] 3. Env 생성자에 피처 목록 전달 (agent_2_cols 추가)
     train_env = MARLStockEnv(
         train_features, train_prices, 
-        agent_0_cols, agent_1_cols, # <--- 추가
+        agent_0_cols, agent_1_cols, agent_2_cols, # <--- 수정
         n_agents=N_AGENTS, window_size=WINDOW_SIZE
     )
     test_env = MARLStockEnv(
         test_features, test_prices, 
-        agent_0_cols, agent_1_cols, # <--- 추가
+        agent_0_cols, agent_1_cols, agent_2_cols, # <--- 수정
         n_agents=N_AGENTS, window_size=WINDOW_SIZE
     )
     
-    # [수정] 3. obs_dim을 리스트로 관리
+    # [수정] 4. obs_dim을 3개 리스트로 관리
     obs_dim_0 = train_env.observation_dim_0
     obs_dim_1 = train_env.observation_dim_1
-    obs_dims_list = [obs_dim_0, obs_dim_1] # (N_AGENTS=2 가정)
+    obs_dim_2 = train_env.observation_dim_2 # <--- 추가
+    obs_dims_list = [obs_dim_0, obs_dim_1, obs_dim_2] # <--- 수정
     
     state_dim = train_env.state_dim
     action_dim = train_env.action_dim
-    n_features = train_env.n_features_global # (전체 피처 개수)
+    n_features = train_env.n_features_global
 
-    # [수정] 4. Learner에 obs_dims_list 전달
+    # [수정] 5. Learner에 obs_dims_list 전달
     learner = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
     buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, DEVICE)
 
     total_steps = 0
     
     print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
-    # [수정] Obs 차원 출력
-    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기) | 글로벌 상태 차원: {state_dim} ---")
+    # [수정] Obs 차원 3개 출력
+    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험) | 글로벌 상태 차원: {state_dim} ---")
     
+    # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
     for i_episode in range(NUM_EPISODES):
         obs_dict, info = train_env.reset(initial_portfolio=None) 
         global_state = info["global_state"]
-        
         episode_team_reward = 0.0
         done = False
         
@@ -238,48 +227,34 @@ def main():
 
     print("--- 학습 완료 ---")
 
+    # (백테스트 로직은 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
     print("\n--- [1] 전체 테스트 기간 백테스트 수행 중 ---")
-    
     if user_portfolio['positions'][0] != 0:
         pos_str = "Long" if user_portfolio['positions'][0] == 1 else "Short"
         print(f"--- (입력된 포트폴리오: Qnt={args.quantity}, Pos={pos_str}, Price={args.price}) ---")
     else:
         print("--- (입력된 포트폴리오 없음. 0에서 시작) ---")
-
+        
     obs_dict, info = test_env.reset(initial_portfolio=user_portfolio)
     global_state = info["global_state"]
-    
-    # [백테스트 수정] 수익을 기록할 리스트
     all_team_rewards = []
-    
     current_step = 0
     while current_step < test_env.max_steps:
         actions_dict = learner.select_actions(obs_dict, 0.0) # Epsilon = 0.0
         obs_dict, rewards_dict, dones_dict, _, info = test_env.step(actions_dict)
-        
-        all_team_rewards.append(rewards_dict['agent_0']) # <-- 일별 수익 기록
-        
+        all_team_rewards.append(rewards_dict['agent_0'])
         global_state = info["global_state"]
         current_step += 1
         if dones_dict['__all__']:
             break
 
-    # [백테스트 수정] 백테스트 결과 계산
     print("\n--- [2] 백테스트 성능 지표 (신뢰도/정확도) ---")
-    
     test_days = len(all_team_rewards)
     if test_days > 0:
         all_rewards_series = pd.Series(all_team_rewards)
-        
-        # 1. 누적 수익 (환경의 reward는 가격 변화량 기준이므로 합산)
         total_pnl = all_rewards_series.sum()
-        
-        # 2. 연간 샤프 비율 (일별 수익률 기준, 무위험 이자율 0 가정)
-        #    (주의: 현재 reward는 '수익률'이 아닌 '수익금액'이므로 샤프비율의 의미가 다소 다름)
         daily_std = all_rewards_series.std() + 1e-9
-        sharpe_ratio = (all_rewards_series.mean() / daily_std) * np.sqrt(252) # 252: 연간 거래일
-        
-        # 3. 승률 (일별 수익이 0보다 큰 날의 비율)
+        sharpe_ratio = (all_rewards_series.mean() / daily_std) * np.sqrt(252)
         win_days = (all_rewards_series > 0).sum()
         win_rate = (win_days / test_days) * 100.0
         
@@ -292,11 +267,9 @@ def main():
     else:
         print("    - 백테스트 기간이 0일이어서 성능을 측정할 수 없습니다.")
 
-
-    # --- [3] 최종일 상세 분석 (기존 UI) ---
+    # --- [3] 최종일 상세 분석 ---
     print("\n--- [3] 최종일 예측 상세 분석 ---")
     
-    # 이 섹션은 루프가 끝난 뒤의 'final_obs_dict'를 사용하므로 수정 필요 없음
     final_obs_dict = obs_dict
     action_map = {0: "Long", 1: "Hold", 2: "Short"}
     action_indices = list(action_map.keys())
@@ -310,56 +283,66 @@ def main():
         for i, agent in enumerate(learner.agents):
             q_vals_all_agents.append(agent.get_q_values(obs_tensors[i]))
 
+    # --- [수정] 3D 그리드 계산 (3중 for-loop) ---
     agent_q_inputs = []
-    action_pairs = []
+    action_tuples = [] # (a0, a1, a2)
     
     q_vals_0 = q_vals_all_agents[0].squeeze(0)
     q_vals_1 = q_vals_all_agents[1].squeeze(0)
+    q_vals_2 = q_vals_all_agents[2].squeeze(0) # <-- 추가
 
-    for a0_idx in action_indices:
-        for a1_idx in action_indices:
-            q0 = q_vals_0[a0_idx]
-            q1 = q_vals_1[a1_idx]
-            agent_q_inputs.append(torch.stack([q0, q1])) 
-            action_pairs.append((a0_idx, a1_idx))
+    for i, a0_idx in enumerate(action_indices):
+        for j, a1_idx in enumerate(action_indices):
+            for k, a2_idx in enumerate(action_indices): # <-- 추가
+                q0 = q_vals_0[a0_idx]
+                q1 = q_vals_1[a1_idx]
+                q2 = q_vals_2[a2_idx] # <-- 추가
+                agent_q_inputs.append(torch.stack([q0, q1, q2])) # <-- 수정
+                action_tuples.append((a0_idx, a1_idx, a2_idx)) # <-- 수정
     
     agent_q_batch = torch.stack(agent_q_inputs) 
-    state_batch = state_tensor.repeat(len(action_pairs), 1)
+    state_batch = state_tensor.repeat(len(action_tuples), 1)
 
     with torch.no_grad():
         all_q_totals = learner.mixer(agent_q_batch, state_batch)
     
-    q_total_grid = all_q_totals.view(len(action_indices), len(action_indices)).cpu().numpy()
+    # [수정] 그리드를 3D (A0, A1, A2)로 변경
+    q_total_grid = all_q_totals.view(
+        len(action_indices), len(action_indices), len(action_indices) 
+    ).cpu().numpy()
     
     best_q_total_value = all_q_totals.max().item()
     best_joint_action_idx_flat = all_q_totals.argmax().item()
-    best_joint_action_indices = action_pairs[best_joint_action_idx_flat]
-
-    # [수정] 5. XAI 파트에서 에이전트별 피처 정보 정확히 전달
+    best_joint_action_indices = action_tuples[best_joint_action_idx_flat] # (a0, a1, a2) 튜플
+    
+    # --- [수정] XAI 파트 3개 에이전트 리스트 ---
     agent_analyses = []
-    feature_names_list = [agent_0_cols, agent_1_cols] # 에이전트별 피처 이름 리스트
-    n_features_list = [train_env.n_features_agent_0, train_env.n_features_agent_1] # 에이전트별 피처 개수 리스트
+    feature_names_list = [agent_0_cols, agent_1_cols, agent_2_cols] # <-- 수정
+    n_features_list = [
+        train_env.n_features_agent_0, 
+        train_env.n_features_agent_1, 
+        train_env.n_features_agent_2 # <-- 추가
+    ]
     
     for i, agent in enumerate(learner.agents):
         obs = final_obs_dict[f'agent_{i}']
-        agent_feature_names = feature_names_list[i] # 해당 에이전트의 피처 이름
-        n_features_agent = n_features_list[i]       # 해당 에이전트의 피처 개수
+        agent_feature_names = feature_names_list[i]
+        n_features_agent = n_features_list[i]
 
         action_idx, q_values, importance = agent.get_prediction_with_reason(
             obs, 
-            agent_feature_names, # <-- 수정됨
+            agent_feature_names,
             WINDOW_SIZE, 
-            n_features_agent     # <-- 수정됨
+            n_features_agent
         )
         agent_analyses.append((action_idx, q_values, importance))
         
     final_signal = convert_joint_action_to_signal(best_joint_action_indices, action_map)
     ai_explanation = generate_ai_explanation(final_signal, agent_analyses)
     
-    # [수정] 5. UI 출력에는 정규화 *안 된* (test_features_unnorm) 데이터 전달
     current_indicator_values = test_features_unnorm.iloc[-1]
     
-    # --- 2. UI 포맷으로 출력 ---
+    # --- UI 포맷으로 출력 (수정된 3D 그리드 출력 함수 사용) ---
     print_ui_output(
         final_signal=final_signal,
         ai_explanation=ai_explanation,

@@ -4,37 +4,44 @@ import numpy as np
 from config import N_AGENTS, WINDOW_SIZE
 
 class MARLStockEnv(gym.Env):
-    # [수정] 생성자 인자에 agent_0_cols, agent_1_cols 추가
-    def __init__(self, features_df, prices_df, agent_0_cols, agent_1_cols, 
+    # [수정] 생성자 인자에 agent_2_cols 추가
+    def __init__(self, features_df, prices_df, 
+                 agent_0_cols, agent_1_cols, agent_2_cols, 
                  n_agents=N_AGENTS, window_size=WINDOW_SIZE):
         super().__init__()
+        
+        if n_agents != 3:
+            print(f"경고: N_AGENTS({n_agents})가 3이 아닙니다. 이 Env 코드는 3-Agent에 맞게 수정되었습니다.")
+            
         self.df = features_df
         self.prices = prices_df
         self.window_size = window_size
         self.n_agents = n_agents
         self.max_steps = len(self.df) - self.window_size - 1
         
-        # [수정] 에이전트별 피처 인덱스 저장
         all_feature_cols = list(features_df.columns)
         self.agent_0_indices = [all_feature_cols.index(col) for col in agent_0_cols if col in all_feature_cols]
         self.agent_1_indices = [all_feature_cols.index(col) for col in agent_1_cols if col in all_feature_cols]
+        # [추가] Agent 2 인덱스
+        self.agent_2_indices = [all_feature_cols.index(col) for col in agent_2_cols if col in all_feature_cols]
         
         self.n_features_agent_0 = len(self.agent_0_indices)
         self.n_features_agent_1 = len(self.agent_1_indices)
-        self.n_features_global = len(all_feature_cols) # 글로벌 상태용
+        self.n_features_agent_2 = len(self.agent_2_indices) # [추가]
+        self.n_features_global = len(all_feature_cols)
 
-        # [수정] Obs 차원이 에이전트별로 달라짐
         # Obs: Market Data (Sub-set) + Pos Signal (1) + P/L (1)
         self.observation_dim_0 = self.window_size * self.n_features_agent_0 + 2
         self.observation_dim_1 = self.window_size * self.n_features_agent_1 + 2
+        self.observation_dim_2 = self.window_size * self.n_features_agent_2 + 2 # [추가]
         
-        # State: Market Data (Full-set) + All Agents [Pos Signal(N), P/L(N)]
         self.state_dim = self.window_size * self.n_features_global + (self.n_agents * 2)
         
-        # [수정] Observation Space가 에이전트별로 달라짐
+        # [수정] Observation Space에 agent_2 추가
         self.observation_space = spaces.Dict({
             'agent_0': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_0,), dtype=np.float32),
-            'agent_1': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_1,), dtype=np.float32)
+            'agent_1': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_1,), dtype=np.float32),
+            'agent_2': spaces.Box(low=-np.inf, high=np.inf, shape=(self.observation_dim_2,), dtype=np.float32)
         })
         
         self.action_dim = 3 # (행동은 동일)
@@ -50,19 +57,16 @@ class MARLStockEnv(gym.Env):
         start = self.current_step
         end = start + self.window_size
         
-        # (1) 글로벌 상태용 전체 데이터 (Window, N_features_global)
         market_data_global_windowed = self.df.iloc[start:end].values
         
-        # (2) 에이전트 0 (단기) 데이터 (Window, N_features_agent_0)
         market_data_agent_0 = market_data_global_windowed[:, self.agent_0_indices]
-        
-        # (3) 에이전트 1 (장기) 데이터 (Window, N_features_agent_1)
         market_data_agent_1 = market_data_global_windowed[:, self.agent_1_indices]
+        market_data_agent_2 = market_data_global_windowed[:, self.agent_2_indices] # [추가]
 
-        # (4) 1차원으로 Flatten
         market_data_global_flat = market_data_global_windowed.flatten()
         market_data_agent_0_flat = market_data_agent_0.flatten()
         market_data_agent_1_flat = market_data_agent_1.flatten()
+        market_data_agent_2_flat = market_data_agent_2.flatten() # [추가]
             
         current_price = self.prices.iloc[self.current_step + self.window_size - 1]
         
@@ -82,25 +86,26 @@ class MARLStockEnv(gym.Env):
             
             own_portfolio_state = np.array([pos_signal, unrealized_return_pct], dtype=np.float32)
             
-            # [수정] 에이전트별로 다른 Market Data 주입
+            # [수정] 에이전트별로 다른 Market Data 주입 (Agent 2 추가)
             if i == 0:
-                observations[f'agent_{i}'] = np.concatenate([market_data_agent_0_flat, own_portfolio_state])
+                obs_flat = market_data_agent_0_flat
             elif i == 1:
-                observations[f'agent_{i}'] = np.concatenate([market_data_agent_1_flat, own_portfolio_state])
-            # (N_AGENTS가 2 이상일 경우를 대비한 else/elif 추가 가능)
+                obs_flat = market_data_agent_1_flat
+            elif i == 2:
+                obs_flat = market_data_agent_2_flat
+            else:
+                # 4번째 에이전트 이상일 경우 글로벌 데이터 사용 (예외 처리)
+                obs_flat = market_data_global_flat
+                
+            observations[f'agent_{i}'] = np.concatenate([obs_flat, own_portfolio_state])
                 
             global_portfolio_state.append(own_portfolio_state)
             
-        # 글로벌 상태는 *전체* 마켓 데이터 + *전체* 포트폴리오
         global_state = np.concatenate([market_data_global_flat, np.concatenate(global_portfolio_state)])
             
         return observations, global_state
 
     def reset(self, seed=None, initial_portfolio=None):
-        """
-        initial_portfolio (dict, optional): 
-            {'positions': [1, 1], 'entry_prices': [80000.0, 80000.0]}
-        """
         super().reset(seed=seed)
         self.current_step = 0
         
@@ -145,6 +150,8 @@ class MARLStockEnv(gym.Env):
                 if current_pos != -1:
                     self.entry_prices[i] = float(new_price)
 
+        # QMIX는 팀 보상(Team Reward)을 사용
+        # 모든 에이전트의 포지션을 합산하여 보상 계산
         joint_position = sum(self.positions)
         holding_reward = float(joint_position * price_change)
         team_reward = holding_reward + instant_rewards
