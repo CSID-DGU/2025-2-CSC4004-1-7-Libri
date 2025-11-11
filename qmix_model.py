@@ -7,13 +7,20 @@ from config import N_AGENTS, LR, TAU, MIXER_EMBED_DIM, BATCH_SIZE, GAMMA
 
 # --- Q-Network (DQN) ---
 class Q_Net(nn.Module):
+    # [수정] Dropout(드롭아웃)을 추가하여 과적합 방지
     def __init__(self, state_dim, action_dim, hid_shape=(256, 256)):
         super().__init__()
         layers = [state_dim] + list(hid_shape) + [action_dim]
         net_layers = []
         for j in range(len(layers)-1):
-            act = nn.ReLU if j < len(layers)-2 else nn.Identity
-            net_layers += [nn.Linear(layers[j], layers[j+1]), act()]
+            net_layers += [nn.Linear(layers[j], layers[j+1])]
+            
+            # [수정] 마지막 레이어(출력)가 아니면 ReLU, Dropout 추가
+            if j < len(layers)-2:
+                net_layers += [nn.ReLU(), nn.Dropout(p=0.3)] # 30% 드롭아웃
+            else:
+                net_layers += [nn.Identity()] # 마지막 레이어는 활성화 함수 없음
+
         self.net = nn.Sequential(*net_layers)
 
     def forward(self, state):
