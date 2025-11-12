@@ -91,10 +91,8 @@ class MARLStockEnv(gym.Env):
                 obs_flat = market_data_agent_0_flat
             elif i == 1:
                 obs_flat = market_data_agent_1_flat
-            elif i == 2:
+            else:  # i == 2
                 obs_flat = market_data_agent_2_flat
-            else:
-                obs_flat = market_data_global_flat
                 
             observations[f'agent_{i}'] = np.concatenate([obs_flat, own_portfolio_state])
             global_portfolio_state.append(own_portfolio_state)
