@@ -154,8 +154,6 @@ class MARLStockEnv(gym.Env):
         team_reward_raw = holding_reward + instant_rewards # <-- 원본 수익 금액
 
         # 2. 수익률(Return) 계산
-        #    (팀 보상을 old_price로 나누어 수익률로 변환)
-        #    (old_price가 0이 되는 극단적인 경우 방지)
         team_return_pct = 0.0
         if old_price > 1e-6:
             team_return_pct = team_reward_raw / old_price
@@ -163,11 +161,13 @@ class MARLStockEnv(gym.Env):
         self.reward_history.append(team_return_pct)
 
         # 3. 최근 20일간의 수익 변동성(표준편차) 계산
-        daily_volatility = np.std(self.reward_history) + 1e-9 # 0으로 나누기 방지
+        daily_volatility = np.std(self.reward_history) + 1e-9
 
-        # 4. 최종 보상 = (수익률 / 변동성) (샤프 비율과 유사)
-        #    (수익이 0이더라도 변동성이 낮으면(분모가 작으면) 보상이 커짐 -> Hold 장려)
-        team_reward = team_return_pct / daily_volatility
+        # 4. 개선된 보상 함수: 수익률 + 샤프 비율 혼합
+        # - 수익률에 더 큰 가중치 (승률 향상)
+        # - 변동성 페널티는 약하게 적용
+        sharpe_component = team_return_pct / daily_volatility
+        team_reward = (team_return_pct * 100.0) + (sharpe_component * 0.1)
 
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         

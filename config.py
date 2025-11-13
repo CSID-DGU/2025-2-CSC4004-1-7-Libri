@@ -17,8 +17,8 @@ MIXER_EMBED_DIM = 32
 # --- 데이터 설정 ---
 TICKER = "005930.KS"
 VIX_TICKER = "^VIX"
-START_DATE = "2020-11-12"
+START_DATE = "2020-11-12"  # 5년 데이터로 확장 (더 많은 패턴 학습)
 END_DATE = "2025-11-11"
 
 # --- 학습 설정 ---
-NUM_EPISODES = 5
+NUM_EPISODES = 500

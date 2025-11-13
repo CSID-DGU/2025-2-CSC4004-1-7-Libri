@@ -201,7 +201,8 @@ def main():
         
         while not done:
             total_steps += 1
-            epsilon = max(0.01, 1.0 - total_steps / 50000)
+            # 더 천천히 감소 (더 많은 탐험)
+            epsilon = max(0.05, 1.0 - total_steps / 100000)
             
             actions_dict = learner.select_actions(obs_dict, epsilon)
             next_obs_dict, rewards_dict, dones_dict, _, info = train_env.step(actions_dict)
@@ -238,11 +239,13 @@ def main():
     obs_dict, info = test_env.reset(initial_portfolio=user_portfolio)
     global_state = info["global_state"]
     all_team_rewards = []
+    all_raw_pnls = []  # 실제 금액 기준 수익 추적
     current_step = 0
     while current_step < test_env.max_steps:
         actions_dict = learner.select_actions(obs_dict, 0.0) # Epsilon = 0.0
         obs_dict, rewards_dict, dones_dict, _, info = test_env.step(actions_dict)
         all_team_rewards.append(rewards_dict['agent_0'])
+        all_raw_pnls.append(info["raw_pnl"])  # 실제 금액 수익 저장
         global_state = info["global_state"]
         current_step += 1
         if dones_dict['__all__']:
@@ -252,16 +255,19 @@ def main():
     test_days = len(all_team_rewards)
     if test_days > 0:
         all_rewards_series = pd.Series(all_team_rewards)
-        total_pnl = all_rewards_series.sum()
+        all_raw_pnls_series = pd.Series(all_raw_pnls)  # 실제 금액 시리즈
+        
+        total_pnl = all_raw_pnls_series.sum()  # 실제 금액 기준 누적 수익
+        daily_avg_pnl = all_raw_pnls_series.mean()  # 실제 금액 기준 일 평균
         daily_std = all_rewards_series.std() + 1e-9
         sharpe_ratio = (all_rewards_series.mean() / daily_std) * np.sqrt(252)
-        win_days = (all_rewards_series > 0).sum()
+        win_days = (all_raw_pnls_series > 0).sum()  # 실제 수익 기준 승률
         win_rate = (win_days / test_days) * 100.0
         
         print(f"    - 백테스트 기간    : {test_days} 일")
-        print(f"    - 누적 팀 수익(PnL) : {total_pnl:.2f} (환경 기준 점수)")
-        print(f"    - 일 평균 수익     : {all_rewards_series.mean():.2f}")
-        print(f"    - 일 수익 변동성   : {daily_std:.2f}")
+        print(f"    - 누적 팀 수익(PnL) : {total_pnl:.2f} 원")
+        print(f"    - 일 평균 수익     : {daily_avg_pnl:.2f} 원")
+        print(f"    - 일 수익 변동성   : {daily_std:.2f} (정규화 점수)")
         print(f"    - 샤프 비율 (연환산): {sharpe_ratio:.3f}")
         print(f"    - 승률 (일별)      : {win_rate:.2f} % ({win_days} / {test_days} 일)")
     else:
