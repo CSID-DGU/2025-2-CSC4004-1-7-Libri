@@ -167,7 +167,7 @@ class MARLStockEnv(gym.Env):
         # - 수익률에 더 큰 가중치 (승률 향상)
         # - 변동성 페널티는 약하게 적용
         sharpe_component = team_return_pct / daily_volatility
-        team_reward = (team_return_pct * 100.0) + (sharpe_component * 0.1)
+        team_reward = (team_return_pct * 150.0) + (sharpe_component * 0.05)
 
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         

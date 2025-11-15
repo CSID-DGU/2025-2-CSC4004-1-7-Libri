@@ -2,8 +2,8 @@ import torch
 
 # --- 설정 ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-GAMMA = 0.99
-LR = 5e-5
+GAMMA = 0.97
+LR = 8e-5
 BATCH_SIZE = 64
 BUFFER_SIZE = int(5e4)
 WINDOW_SIZE = 10
@@ -21,4 +21,4 @@ START_DATE = "2020-11-12"  # 5년 데이터로 확장 (더 많은 패턴 학습)
 END_DATE = "2025-11-11"
 
 # --- 학습 설정 ---
-NUM_EPISODES = 500
+NUM_EPISODES = 800
