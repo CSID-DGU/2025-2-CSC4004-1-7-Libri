@@ -201,7 +201,7 @@ def main():
         
         while not done:
             total_steps += 1
-            # 에피소드 번호 기반
+            # 에피소드 번호 기반 epsilon 감소
             epsilon = max(0.05, 1.0 - i_episode / NUM_EPISODES)
 
             
