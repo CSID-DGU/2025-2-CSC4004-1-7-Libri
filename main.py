@@ -201,8 +201,9 @@ def main():
         
         while not done:
             total_steps += 1
-            # 더 천천히 감소 (더 많은 탐험)
-            epsilon = max(0.05, 1.0 - total_steps / 100000)
+            # 에피소드 번호 기반
+            epsilon = max(0.05, 1.0 - i_episode / NUM_EPISODES)
+
             
             actions_dict = learner.select_actions(obs_dict, epsilon)
             next_obs_dict, rewards_dict, dones_dict, _, info = train_env.step(actions_dict)
