@@ -2,14 +2,14 @@ import torch
 
 # --- 설정 ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-GAMMA = 0.995
+GAMMA = 0.99
 LR = 3e-5
 BATCH_SIZE = 64
 BUFFER_SIZE = int(5e4)
 WINDOW_SIZE = 10
 N_AGENTS = 3
-TARGET_UPDATE_FREQ = 100
-TAU = 0.005
+TARGET_UPDATE_FREQ = 200
+TAU = 0.003
 
 # --- QMIX 관련 설정 ---
 MIXER_EMBED_DIM = 32

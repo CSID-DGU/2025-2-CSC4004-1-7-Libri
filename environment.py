@@ -163,11 +163,11 @@ class MARLStockEnv(gym.Env):
         # 3. 최근 20일간의 수익 변동성(표준편차) 계산
         daily_volatility = np.std(self.reward_history) + 1e-9
 
-        # 4. 장기 보상 중심 보상 함수
-        # - 수익률과 샤프 비율을 균형있게 고려 (안정적 장기 성장)
-        # - 변동성 페널티를 강화하여 리스크 관리
+        # 4. 장기 안정적 수익 보상 함수
+        # - 수익률과 샤프 비율을 균형있게 고려
+        # - 변동성을 강하게 페널티하여 안정적 장기 성장 유도
         sharpe_component = team_return_pct / daily_volatility
-        team_reward = (team_return_pct * 80.0) + (sharpe_component * 0.3)
+        team_reward = (team_return_pct * 60.0) + (sharpe_component * 0.5)
 
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         
