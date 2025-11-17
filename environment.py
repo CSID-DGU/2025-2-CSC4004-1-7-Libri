@@ -5,8 +5,8 @@ from config import N_AGENTS, WINDOW_SIZE, REWARD_SCALE
 
 class MARLStockEnv(gym.Env):
     def __init__(self, features_df, prices_df, 
-                 agent_0_cols, agent_1_cols, agent_2_cols, 
-                 n_agents=N_AGENTS, window_size=WINDOW_SIZE):
+                agent_0_cols, agent_1_cols, agent_2_cols, 
+                n_agents=N_AGENTS, window_size=WINDOW_SIZE):
         super().__init__()
         
         if n_agents != 3:
