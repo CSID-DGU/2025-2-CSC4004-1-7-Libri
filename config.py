@@ -21,4 +21,4 @@ START_DATE = "2020-11-17"  # 5년 데이터로 확장 (더 많은 패턴 학습)
 END_DATE = "2025-11-16"
 
 # --- 학습 설정 ---
-NUM_EPISODES = 800
+NUM_EPISODES = 500
