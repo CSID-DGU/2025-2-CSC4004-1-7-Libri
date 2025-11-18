@@ -160,21 +160,27 @@ class MARLStockEnv(gym.Env):
             else:  # Hold
                 votes.append(0)
         
-        # 다수결로 최종 행동 결정
+        # 투표 합산 및 신호 강도 계산
         vote_sum = sum(votes)
+        
+        # 신호 강도에 따른 행동 결정
         if vote_sum > 0:
             final_action = 0  # Buy
+            signal_strength = vote_sum / self.n_agents  # 0.25 ~ 1.0 (1~4표)
         elif vote_sum < 0:
             final_action = 2  # Sell
+            signal_strength = abs(vote_sum) / self.n_agents  # 0.25 ~ 1.0 (1~4표)
         else:
             final_action = 1  # Hold
+            signal_strength = 0.0
         
         # 실제 거래 실행
         old_portfolio_value = self.cash + (self.shares * old_price)
         
         if final_action == 0:  # Buy
-            # 현금의 90%로 매수 (수수료 고려)
-            buy_amount = self.cash * 0.9
+            # 신호 강도에 비례해서 매수 (1표=22.5%, 2표=45%, 3표=67.5%, 4표=90%)
+            buy_ratio = signal_strength * 0.9
+            buy_amount = self.cash * buy_ratio
             if buy_amount > new_price:
                 buy_shares = int(buy_amount / new_price)
                 cost = buy_shares * new_price
@@ -182,9 +188,10 @@ class MARLStockEnv(gym.Env):
                 self.cash -= cost
                 
         elif final_action == 2:  # Sell
-            # 보유 주식의 90% 매도
+            # 신호 강도에 비례해서 매도 (1표=22.5%, 2표=45%, 3표=67.5%, 4표=90%)
             if self.shares > 0:
-                sell_shares = int(self.shares * 0.9)
+                sell_ratio = signal_strength * 0.9
+                sell_shares = int(self.shares * sell_ratio)
                 if sell_shares > 0:
                     revenue = sell_shares * new_price
                     self.shares -= sell_shares
@@ -194,10 +201,10 @@ class MARLStockEnv(gym.Env):
         new_portfolio_value = self.cash + (self.shares * new_price)
         team_reward_raw = new_portfolio_value - old_portfolio_value  # 실제 금액 수익
 
-        # 2. 수익률(Return) 계산
+        # 2. 수익률(Return) 계산 - 초기 자본 대비로 정규화
         team_return_pct = 0.0
-        if old_portfolio_value > 1e-6:
-            team_return_pct = team_reward_raw / old_portfolio_value
+        if self.capital > 1e-6:
+            team_return_pct = team_reward_raw / self.capital  # 초기 자본 대비 수익률
         
         self.reward_history.append(team_return_pct)
 
