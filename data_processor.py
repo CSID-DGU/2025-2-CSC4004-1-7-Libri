@@ -79,7 +79,8 @@ class DataProcessor:
         self.features = []
         self.agent_0_features = [] # 단기 트레이더 피처
         self.agent_1_features = [] # 추세 추종자 피처
-        self.agent_2_features = [] # [추가] 시장 위험 분석가 피처
+        self.agent_2_features = [] # 시장 위험 분석가 피처
+        self.agent_3_features = [] # [추가] 시장 감성 분석가 피처
         
         self.original_prices = None
         self.scalers = {}
@@ -269,7 +270,37 @@ class DataProcessor:
             print(f"경고: 애널리스트 추천 정보({e})를 가져올 수 없습니다. 0으로 채웁니다.")
             df['AnalystRating'] = 0.0
 
-        # --- [수정] 피처 목록을 3개로 분리 ---
+        # --- 2.4. 시장 감성 지표 (한국 주식 시장) ---
+        print("시장 감성 지표 계산 중...")
+        
+        # 거래량 기반 감성 (거래량 급증 = 관심 증가)
+        df['Volume_MA20'] = df['Volume'].rolling(window=20).mean()
+        df['Volume_Ratio'] = df['Volume'] / (df['Volume_MA20'] + 1e-9)
+        
+        # 가격 모멘텀 (단기 vs 장기)
+        df['Price_Momentum_5'] = df['Close'].pct_change(5)  # 5일 수익률
+        df['Price_Momentum_20'] = df['Close'].pct_change(20)  # 20일 수익률
+        
+        # 변동성 기반 감성 (높은 변동성 = 불안정)
+        df['Price_Volatility'] = df['Close'].pct_change().rolling(window=20).std()
+        
+        # 시장 강도 (High-Low 범위)
+        df['Market_Strength'] = (df['Close'] - df['Low']) / (df['High'] - df['Low'] + 1e-9)
+        
+        # VIX 변화율 (공포 지수 변화)
+        df['VIX_Change'] = df['VIX'].pct_change(5)
+        
+        # 가격 가속도 (추세 강도)
+        df['Price_Acceleration'] = df['Close'].pct_change().diff()
+        
+        # 결측치 처리
+        sentiment_cols = ['Volume_MA20', 'Volume_Ratio', 'Price_Momentum_5', 'Price_Momentum_20', 
+                         'Price_Volatility', 'Market_Strength', 'VIX_Change', 'Price_Acceleration']
+        for col in sentiment_cols:
+            if col in df.columns:
+                df[col] = df[col].fillna(0.0)
+
+        # --- [수정] 피처 목록을 4개로 분리 ---
         common_cols = ['Close', 'High', 'Low', 'Volume'] # 공통 핵심 가격
         
         self.agent_0_features = [ # 단기/모멘텀 (VIX 제외)
@@ -284,13 +315,20 @@ class DataProcessor:
             'ROA', 'DebtRatio', 'AnalystRating'
         ]
         
-        self.agent_2_features = [ # [추가] 시장 위험/변동성
+        self.agent_2_features = [ # 시장 위험/변동성
             *common_cols,
             'VIX', 'ATR', 'Bollinger_B'
         ]
         
-        # [수정] self.features는 세 리스트의 합집합 (중복 제거)
-        self.features = sorted(list(set(self.agent_0_features + self.agent_1_features + self.agent_2_features)))
+        self.agent_3_features = [ # [추가] 시장 감성 분석가
+            *common_cols,
+            'Volume_Ratio', 'Price_Momentum_5', 'Price_Momentum_20',
+            'Price_Volatility', 'Market_Strength', 'VIX_Change', 'Price_Acceleration'
+        ]
+        
+        # [수정] self.features는 네 리스트의 합집합 (중복 제거)
+        self.features = sorted(list(set(self.agent_0_features + self.agent_1_features + 
+                                        self.agent_2_features + self.agent_3_features)))
 
         df = df.dropna()
         return df
@@ -320,7 +358,9 @@ class DataProcessor:
                 self.scalers[col] = scaler
 
         # 3. StandardScaler
-        std_cols = ['MACD', 'MACD_Signal', 'ROA', 'DebtRatio', 'AnalystRating']
+        std_cols = ['MACD', 'MACD_Signal', 'ROA', 'DebtRatio', 'AnalystRating',
+                   'Price_Momentum_5', 'Price_Momentum_20', 'Price_Volatility', 
+                   'VIX_Change', 'Price_Acceleration']
         for col in std_cols:
             if col in df_train_norm.columns:
                 scaler = StandardScaler()
@@ -328,8 +368,8 @@ class DataProcessor:
                 df_test_norm[col] = scaler.transform(df_test_norm[[col]])
                 self.scalers[col] = scaler
 
-        # 4. 100으로 나누기
-        ratio_cols = ['RSI', 'Stoch_K', 'Stoch_D']
+        # 4. 비율 정규화
+        ratio_cols = ['RSI', 'Stoch_K', 'Stoch_D', 'Market_Strength']
         for col in ratio_cols:
             if col in df_train_norm.columns:
                 df_train_norm[col] = df_train_norm[col] / 100.0
@@ -341,6 +381,12 @@ class DataProcessor:
             df_train_norm['Bollinger_B'] = np.clip(df_train_norm['Bollinger_B'], -1, 2)
             df_test_norm['Bollinger_B'] = np.clip(df_test_norm['Bollinger_B'], -1, 2)
             self.scalers['Bollinger_B'] = {'type': 'clip_m1_2'}
+        
+        # 6. Volume_Ratio Clipping
+        if 'Volume_Ratio' in df_train_norm.columns:
+            df_train_norm['Volume_Ratio'] = np.clip(df_train_norm['Volume_Ratio'], 0, 5)
+            df_test_norm['Volume_Ratio'] = np.clip(df_test_norm['Volume_Ratio'], 0, 5)
+            self.scalers['Volume_Ratio'] = {'type': 'clip_0_5'}
 
         df_train_norm = df_train_norm.fillna(0)
         df_test_norm = df_test_norm.fillna(0)
@@ -362,17 +408,19 @@ class DataProcessor:
         print(f"--- 데이터 처리 완료 (정규화 전) ---")
         print(f"총 {len(df_features)}일의 데이터")
         print(f"사용된 지표 (총 {len(self.features)}개): {', '.join(self.features)}")
-        # [수정] 3개 에이전트 정보 출력
+        # [수정] 4개 에이전트 정보 출력
         print(f"  - Agent 0 (단기): {len(self.agent_0_features)}개")
         print(f"  - Agent 1 (장기): {len(self.agent_1_features)}개")
-        print(f"  - Agent 2 (위험): {len(self.agent_2_features)}개") # <-- 추가
+        print(f"  - Agent 2 (위험): {len(self.agent_2_features)}개")
+        print(f"  - Agent 3 (감성): {len(self.agent_3_features)}개") # <-- 추가
 
-        # [수정] 반환 튜플에 agent_2_features 추가
+        # [수정] 반환 튜플에 agent_3_features 추가
         return (
             df_features[self.features], 
             self.original_prices, 
             self.features,
             self.agent_0_features,
             self.agent_1_features,
-            self.agent_2_features  # <--- 추가
+            self.agent_2_features,
+            self.agent_3_features  # <--- 추가
         )

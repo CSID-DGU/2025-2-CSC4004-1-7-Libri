@@ -12,10 +12,10 @@ from environment import MARLStockEnv
 from qmix_model import QMIX_Learner
 from replay_buffer import ReplayBuffer
 
-# --- [수정] 3개 에이전트의 신호 변환 ---
+# --- [수정] 4개 에이전트의 신호 변환 ---
 def convert_joint_action_to_signal(joint_action, action_map):
     action_to_score = {"Long": 1, "Hold": 0, "Short": -1}
-    # (joint_action은 (a0, a1, a2) 튜플이 됨)
+    # (joint_action은 (a0, a1, a2, a3) 튜플이 됨)
     score = sum(action_to_score[action_map[a]] for a in joint_action)
     
     if score >= 3:
@@ -95,22 +95,15 @@ def print_ui_output(
             print(f"    - {indicator:<13}: {current_indicators[indicator]:.2f}")
             
     print("\n--- 4. (참고) 상세 Q_total 그리드 ---")
-    print("    (모든 행동 조합의 Q_total 값입니다.)\n")
+    print("    (4개 에이전트 조합 - 최고 Q값 조합만 표시)\n")
     
-    # 3D 그리드를 2D 그리드 3개로 나누어 출력 (Agent 2를 기준으로)
-    for k, a2_name in enumerate(action_names):
-        print(f"    --- [Agent 2 (위험) = {a2_name}] ---")
-        col_names = " (A0)       | " + " | ".join([f"{name.center(10)}" for name in action_names]) + " (A1)"
-        print("    " + col_names)
-        print("    " + "-" * (11 + (13 * len(action_names))))
-        
-        for i, a0_name in enumerate(action_names):
-            row_str = f" {a0_name:<9} | "
-            for j in range(len(action_names)):
-                # q_total_grid[i, j, k] (A0, A1, A2 순서)
-                row_str += f"{q_total_grid[i, j, k]:>10.4f} | "
-            print("    " + row_str)
-        print("") # 한 그리드 후 공백
+    # 4D 그리드는 너무 크므로 최고 Q값 조합만 표시
+    print(f"    최고 Q-Value: {best_q_total_value:.4f}")
+    print(f"    최적 행동 조합:")
+    print(f"      - Agent 0 (단기): {action_map[best_joint_action_indices[0]]}")
+    print(f"      - Agent 1 (장기): {action_map[best_joint_action_indices[1]]}")
+    print(f"      - Agent 2 (위험): {action_map[best_joint_action_indices[2]]}")
+    print(f"      - Agent 3 (감성): {action_map[best_joint_action_indices[3]]}")
         
     print("=============================================")
 
@@ -140,11 +133,16 @@ def main():
 
     processor = DataProcessor()
     
-    # [수정] 1. processor.process() 반환값이 6개로 늘어남
+    # [수정] 1. processor.process() 반환값이 7개로 늘어남
     (features_unnormalized_df, prices_df, feature_names,
-     agent_0_cols, agent_1_cols, agent_2_cols) = processor.process() # <-- 수정
+     agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols) = processor.process() # <-- 수정
 
-    split_idx = int(len(features_unnormalized_df) * 0.9)
+    # 백테스팅 기간: 마지막 1년 (약 252 거래일)
+    # 학습 기간: 나머지 9년
+    total_days = len(features_unnormalized_df)
+    test_days = min(252, int(total_days * 0.1))  # 1년 또는 10% 중 작은 값
+    split_idx = total_days - test_days
+    
     if split_idx < WINDOW_SIZE * 2:
         print("오류: 데이터가 너무 적어 훈련/테스트 분리가 불가능합니다.")
         return
@@ -153,6 +151,11 @@ def main():
     train_prices = prices_df.iloc[:split_idx]
     test_features_unnorm = features_unnormalized_df.iloc[split_idx:]
     test_prices = prices_df.iloc[split_idx:]
+    
+    print(f"\n--- 데이터 분할 정보 ---")
+    print(f"전체 데이터: {total_days}일")
+    print(f"학습 데이터: {len(train_features_unnorm)}일 ({train_prices.index[0]} ~ {train_prices.index[-1]})")
+    print(f"백테스팅 데이터: {len(test_features_unnorm)}일 ({test_prices.index[0]} ~ {test_prices.index[-1]})")
 
     # [수정] 2. 정규화
     train_features, test_features = processor.normalize_data(
@@ -160,23 +163,24 @@ def main():
         test_features_unnorm
     )
 
-    # [수정] 3. Env 생성자에 피처 목록 전달 (agent_2_cols 추가)
+    # [수정] 3. Env 생성자에 피처 목록 전달 (agent_3_cols 추가)
     train_env = MARLStockEnv(
         train_features, train_prices, 
-        agent_0_cols, agent_1_cols, agent_2_cols, # <--- 수정
+        agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols, # <--- 수정
         n_agents=N_AGENTS, window_size=WINDOW_SIZE
     )
     test_env = MARLStockEnv(
         test_features, test_prices, 
-        agent_0_cols, agent_1_cols, agent_2_cols, # <--- 수정
+        agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols, # <--- 수정
         n_agents=N_AGENTS, window_size=WINDOW_SIZE
     )
     
-    # [수정] 4. obs_dim을 3개 리스트로 관리
+    # [수정] 4. obs_dim을 4개 리스트로 관리
     obs_dim_0 = train_env.observation_dim_0
     obs_dim_1 = train_env.observation_dim_1
-    obs_dim_2 = train_env.observation_dim_2 # <--- 추가
-    obs_dims_list = [obs_dim_0, obs_dim_1, obs_dim_2] # <--- 수정
+    obs_dim_2 = train_env.observation_dim_2
+    obs_dim_3 = train_env.observation_dim_3 # <--- 추가
+    obs_dims_list = [obs_dim_0, obs_dim_1, obs_dim_2, obs_dim_3] # <--- 수정
     
     state_dim = train_env.state_dim
     action_dim = train_env.action_dim
@@ -189,8 +193,8 @@ def main():
     total_steps = 0
     
     print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
-    # [수정] Obs 차원 3개 출력
-    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험) | 글로벌 상태 차원: {state_dim} ---")
+    # [수정] Obs 차원 4개 출력
+    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험), A3={obs_dim_3} (감성) | 글로벌 상태 차원: {state_dim} ---")
     
     # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
     for i_episode in range(NUM_EPISODES):
@@ -295,16 +299,19 @@ def main():
     
     q_vals_0 = q_vals_all_agents[0].squeeze(0)
     q_vals_1 = q_vals_all_agents[1].squeeze(0)
-    q_vals_2 = q_vals_all_agents[2].squeeze(0) # <-- 추가
+    q_vals_2 = q_vals_all_agents[2].squeeze(0)
+    q_vals_3 = q_vals_all_agents[3].squeeze(0) # <-- 추가
 
     for i, a0_idx in enumerate(action_indices):
         for j, a1_idx in enumerate(action_indices):
-            for k, a2_idx in enumerate(action_indices): # <-- 추가
-                q0 = q_vals_0[a0_idx]
-                q1 = q_vals_1[a1_idx]
-                q2 = q_vals_2[a2_idx] # <-- 추가
-                agent_q_inputs.append(torch.stack([q0, q1, q2])) # <-- 수정
-                action_tuples.append((a0_idx, a1_idx, a2_idx)) # <-- 수정
+            for k, a2_idx in enumerate(action_indices):
+                for l, a3_idx in enumerate(action_indices): # <-- 추가
+                    q0 = q_vals_0[a0_idx]
+                    q1 = q_vals_1[a1_idx]
+                    q2 = q_vals_2[a2_idx]
+                    q3 = q_vals_3[a3_idx] # <-- 추가
+                    agent_q_inputs.append(torch.stack([q0, q1, q2, q3])) # <-- 수정
+                    action_tuples.append((a0_idx, a1_idx, a2_idx, a3_idx)) # <-- 수정
     
     agent_q_batch = torch.stack(agent_q_inputs) 
     state_batch = state_tensor.repeat(len(action_tuples), 1)
@@ -312,22 +319,23 @@ def main():
     with torch.no_grad():
         all_q_totals = learner.mixer(agent_q_batch, state_batch)
     
-    # [수정] 그리드를 3D (A0, A1, A2)로 변경
+    # [수정] 그리드를 4D (A0, A1, A2, A3)로 변경
     q_total_grid = all_q_totals.view(
-        len(action_indices), len(action_indices), len(action_indices) 
+        len(action_indices), len(action_indices), len(action_indices), len(action_indices)
     ).cpu().numpy()
     
     best_q_total_value = all_q_totals.max().item()
     best_joint_action_idx_flat = all_q_totals.argmax().item()
     best_joint_action_indices = action_tuples[best_joint_action_idx_flat] # (a0, a1, a2) 튜플
     
-    # --- [수정] XAI 파트 3개 에이전트 리스트 ---
+    # --- [수정] XAI 파트 4개 에이전트 리스트 ---
     agent_analyses = []
-    feature_names_list = [agent_0_cols, agent_1_cols, agent_2_cols] # <-- 수정
+    feature_names_list = [agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols] # <-- 수정
     n_features_list = [
         train_env.n_features_agent_0, 
         train_env.n_features_agent_1, 
-        train_env.n_features_agent_2 # <-- 추가
+        train_env.n_features_agent_2,
+        train_env.n_features_agent_3 # <-- 추가
     ]
     
     for i, agent in enumerate(learner.agents):

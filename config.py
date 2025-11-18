@@ -7,7 +7,7 @@ LR = 5e-5
 BATCH_SIZE = 64
 BUFFER_SIZE = int(5e4)
 WINDOW_SIZE = 10
-N_AGENTS = 3
+N_AGENTS = 4
 TARGET_UPDATE_FREQ = 200
 TAU = 0.003
 
@@ -17,8 +17,8 @@ MIXER_EMBED_DIM = 32
 # --- 데이터 설정 ---
 TICKER = "005930.KS"
 VIX_TICKER = "^VIX"
-START_DATE = "2015-11-17"  # 10년 데이터로 확장 (더 많은 패턴 학습)
-END_DATE = "2025-11-16"
+START_DATE = "2014-11-18"  # 10년 데이터 (학습 9년 + 백테스팅 1년)
+END_DATE = "2024-11-17"
 
 # --- 학습 설정 ---
 NUM_EPISODES = 500
