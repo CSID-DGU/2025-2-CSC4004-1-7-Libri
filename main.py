@@ -57,14 +57,12 @@ def generate_ai_explanation(final_signal, agent_analyses):
         
     return explanation
 
-# --- [수정] 3D 그리드를 출력하도록 UI 함수 수정 ---
+# --- UI 출력 함수 ---
 def print_ui_output(
     final_signal, 
     ai_explanation, 
     current_indicators, 
-    q_total_grid, # (3D 텐서: A0, A1, A2)
-    best_q_total_value, 
-    action_names
+    best_q_total_value
 ):
     print("\n\n=============================================")
     print("      [ 📱 리브리 AI 분석 결과 (삼성전자) ]")
@@ -93,17 +91,6 @@ def print_ui_output(
     for indicator in fundamental_indicators:
          if indicator in current_indicators:
             print(f"    - {indicator:<13}: {current_indicators[indicator]:.2f}")
-            
-    print("\n--- 4. (참고) 상세 Q_total 그리드 ---")
-    print("    (4개 에이전트 조합 - 최고 Q값 조합만 표시)\n")
-    
-    # 4D 그리드는 너무 크므로 최고 Q값 조합만 표시
-    print(f"    최고 Q-Value: {best_q_total_value:.4f}")
-    print(f"    최적 행동 조합:")
-    print(f"      - Agent 0 (단기): {action_map[best_joint_action_indices[0]]}")
-    print(f"      - Agent 1 (장기): {action_map[best_joint_action_indices[1]]}")
-    print(f"      - Agent 2 (위험): {action_map[best_joint_action_indices[2]]}")
-    print(f"      - Agent 3 (감성): {action_map[best_joint_action_indices[3]]}")
         
     print("=============================================")
 
@@ -111,22 +98,20 @@ def print_ui_output(
 # --- 메인 실행 함수 ---
 def main():
     parser = argparse.ArgumentParser(description="QMIX Stock Trading AI")
-    parser.add_argument('--quantity', type=int, default=0, help="사용자의 현재 보유 주식 수량 (예: 100)")
-    parser.add_argument('--price', type=float, default=0.0, help="사용자의 평단가 (예: 85000)")
+    parser.add_argument('--capital', type=float, default=10000000, help="투자 금액 (원) (예: 10000000 = 1000만원)")
     args = parser.parse_args()
     
-    pos_signal = 0
-    entry_price = 0.0
-    if args.quantity > 0: pos_signal = 1
-    elif args.quantity < 0: 
-        print("경고: 마이너스 수량이 입력되었습니다. '숏' 포지션으로 간주합니다.")
-        pos_signal = -1
-    if pos_signal != 0: entry_price = args.price
+    # 투자 금액 저장
+    CAPITAL = args.capital
+    print(f"\n=== 투자 설정 ===")
+    print(f"투자 금액: {CAPITAL:,.0f}원")
             
-    # (N_AGENTS=3이므로 3개 리스트가 됨)
+    # 포트폴리오는 환경에서 자동 관리
     user_portfolio = {
-        'positions': [pos_signal] * N_AGENTS,
-        'entry_prices': [entry_price] * N_AGENTS
+        'capital': CAPITAL,
+        'positions': [0] * N_AGENTS,
+        'entry_prices': [0.0] * N_AGENTS,
+        'shares': 0  # 보유 주식 수
     }
 
     print(f"사용 장치: {DEVICE}")
@@ -232,28 +217,29 @@ def main():
 
     print("--- 학습 완료 ---")
 
-    # (백테스트 로직은 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
     print("\n--- [1] 전체 테스트 기간 백테스트 수행 중 ---")
-    if user_portfolio['positions'][0] != 0:
-        pos_str = "Long" if user_portfolio['positions'][0] == 1 else "Short"
-        print(f"--- (입력된 포트폴리오: Qnt={args.quantity}, Pos={pos_str}, Price={args.price}) ---")
-    else:
-        print("--- (입력된 포트폴리오 없음. 0에서 시작) ---")
+    print(f"--- 초기 투자 금액: {CAPITAL:,.0f}원 ---")
         
     obs_dict, info = test_env.reset(initial_portfolio=user_portfolio)
     global_state = info["global_state"]
     all_team_rewards = []
     all_raw_pnls = []  # 실제 금액 기준 수익 추적
+    portfolio_values = [CAPITAL]  # 포트폴리오 가치 추적
     current_step = 0
     while current_step < test_env.max_steps:
         actions_dict = learner.select_actions(obs_dict, 0.0) # Epsilon = 0.0
         obs_dict, rewards_dict, dones_dict, _, info = test_env.step(actions_dict)
         all_team_rewards.append(rewards_dict['agent_0'])
         all_raw_pnls.append(info["raw_pnl"])  # 실제 금액 수익 저장
+        portfolio_values.append(info["portfolio_value"])
         global_state = info["global_state"]
         current_step += 1
         if dones_dict['__all__']:
             break
+    
+    final_portfolio_value = portfolio_values[-1]
+    final_shares = info["shares"]
+    final_cash = info["cash"]
 
     print("\n--- [2] 백테스트 성능 지표 (신뢰도/정확도) ---")
     test_days = len(all_team_rewards)
@@ -268,12 +254,18 @@ def main():
         win_days = (all_raw_pnls_series > 0).sum()  # 실제 수익 기준 승률
         win_rate = (win_days / test_days) * 100.0
         
+        total_return_pct = ((final_portfolio_value - CAPITAL) / CAPITAL) * 100
+        
         print(f"    - 백테스트 기간    : {test_days} 일")
-        print(f"    - 누적 팀 수익(PnL) : {total_pnl:.2f} 원")
-        print(f"    - 일 평균 수익     : {daily_avg_pnl:.2f} 원")
-        print(f"    - 일 수익 변동성   : {daily_std:.2f} (정규화 점수)")
+        print(f"    - 초기 투자 금액   : {CAPITAL:,.0f} 원")
+        print(f"    - 최종 포트폴리오  : {final_portfolio_value:,.0f} 원")
+        print(f"    - 보유 주식        : {final_shares} 주")
+        print(f"    - 보유 현금        : {final_cash:,.0f} 원")
+        print(f"    - 누적 수익(PnL)   : {total_pnl:,.0f} 원 ({total_return_pct:+.2f}%)")
+        print(f"    - 일 평균 수익     : {daily_avg_pnl:,.0f} 원")
+        print(f"    - 일 수익 변동성   : {daily_std:.4f}")
         print(f"    - 샤프 비율 (연환산): {sharpe_ratio:.3f}")
-        print(f"    - 승률 (일별)      : {win_rate:.2f} % ({win_days} / {test_days} 일)")
+        print(f"    - 승률 (일별)      : {win_rate:.2f}% ({win_days}/{test_days}일)")
     else:
         print("    - 백테스트 기간이 0일이어서 성능을 측정할 수 없습니다.")
 
@@ -356,14 +348,12 @@ def main():
     
     current_indicator_values = test_features_unnorm.iloc[-1]
     
-    # --- UI 포맷으로 출력 (수정된 3D 그리드 출력 함수 사용) ---
+    # --- UI 포맷으로 출력 ---
     print_ui_output(
         final_signal=final_signal,
         ai_explanation=ai_explanation,
         current_indicators=current_indicator_values,
-        q_total_grid=q_total_grid,
-        best_q_total_value=best_q_total_value,
-        action_names=action_names
+        best_q_total_value=best_q_total_value
     )
 
 if __name__ == "__main__":

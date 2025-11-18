@@ -54,6 +54,11 @@ class MARLStockEnv(gym.Env):
         self.positions = [0] * self.n_agents
         self.entry_prices = [0.0] * self.n_agents
         
+        # 실제 거래 관리
+        self.capital = 0.0  # 투자 가능 금액
+        self.shares = 0  # 보유 주식 수
+        self.cash = 0.0  # 현금 보유액
+        
         #샤프 비율 보상을 위한 변동성 계산기
         self.reward_history = deque(maxlen=20) # 최근 20일간의 팀 수익률을 저장
         self.reward_history.append(0.0) # 초기값
@@ -112,13 +117,22 @@ class MARLStockEnv(gym.Env):
         super().reset(seed=seed)
         self.current_step = 0
         
-        if initial_portfolio:
-            self.positions = initial_portfolio['positions']
-            self.entry_prices = initial_portfolio['entry_prices']
-        else:
-            self.positions = [0] * self.n_agents
-            self.entry_prices = [0.0] * self.n_agents
+        if initial_portfolio and 'capital' in initial_portfolio:
+            self.capital = initial_portfolio['capital']
+            self.shares = initial_portfolio.get('shares', 0)
+            self.cash = self.capital  # 초기에는 모두 현금
             
+            # 기존 보유 주식이 있다면
+            if self.shares > 0:
+                current_price = self.prices.iloc[self.current_step + self.window_size - 1]
+                self.cash = self.capital - (self.shares * current_price)
+        else:
+            self.capital = 10_000_000  # 기본 1000만원
+            self.shares = 0
+            self.cash = self.capital
+            
+        self.positions = [0] * self.n_agents
+        self.entry_prices = [0.0] * self.n_agents
         self.reward_history.clear()
         self.reward_history.append(0.0)
             
@@ -135,36 +149,55 @@ class MARLStockEnv(gym.Env):
         new_price = self.prices.iloc[self.current_step + self.window_size - 1]
         price_change = new_price - old_price
 
-        instant_rewards = 0.0
-        
+        # 에이전트들의 투표로 최종 행동 결정
+        votes = []
         for i in range(self.n_agents):
             action = actions[f'agent_{i}']
-            current_pos = self.positions[i]
-
-            if action == 0: # Buy
-                if current_pos == -1: # Short 청산
-                    instant_rewards += -(new_price - self.entry_prices[i])
-                self.positions[i] = 1
-                if current_pos != 1: 
-                    self.entry_prices[i] = float(new_price)
-            elif action == 1: # Hold
-                pass
-            elif action == 2: # Sell
-                if current_pos == 1: # Long 청산
-                    instant_rewards += (new_price - self.entry_prices[i])
-                self.positions[i] = -1
-                if current_pos != -1:
-                    self.entry_prices[i] = float(new_price)
+            if action == 0:  # Buy
+                votes.append(1)
+            elif action == 2:  # Sell
+                votes.append(-1)
+            else:  # Hold
+                votes.append(0)
         
-        # 1. 원본 수익(P/L) 계산
-        joint_position = sum(self.positions)
-        holding_reward = float(joint_position * price_change)
-        team_reward_raw = holding_reward + instant_rewards # <-- 원본 수익 금액
+        # 다수결로 최종 행동 결정
+        vote_sum = sum(votes)
+        if vote_sum > 0:
+            final_action = 0  # Buy
+        elif vote_sum < 0:
+            final_action = 2  # Sell
+        else:
+            final_action = 1  # Hold
+        
+        # 실제 거래 실행
+        old_portfolio_value = self.cash + (self.shares * old_price)
+        
+        if final_action == 0:  # Buy
+            # 현금의 90%로 매수 (수수료 고려)
+            buy_amount = self.cash * 0.9
+            if buy_amount > new_price:
+                buy_shares = int(buy_amount / new_price)
+                cost = buy_shares * new_price
+                self.shares += buy_shares
+                self.cash -= cost
+                
+        elif final_action == 2:  # Sell
+            # 보유 주식의 90% 매도
+            if self.shares > 0:
+                sell_shares = int(self.shares * 0.9)
+                if sell_shares > 0:
+                    revenue = sell_shares * new_price
+                    self.shares -= sell_shares
+                    self.cash += revenue
+        
+        # 1. 포트폴리오 가치 변화로 수익 계산
+        new_portfolio_value = self.cash + (self.shares * new_price)
+        team_reward_raw = new_portfolio_value - old_portfolio_value  # 실제 금액 수익
 
         # 2. 수익률(Return) 계산
         team_return_pct = 0.0
-        if old_price > 1e-6:
-            team_return_pct = team_reward_raw / old_price
+        if old_portfolio_value > 1e-6:
+            team_return_pct = team_reward_raw / old_portfolio_value
         
         self.reward_history.append(team_return_pct)
 
@@ -184,6 +217,12 @@ class MARLStockEnv(gym.Env):
         dones = {f'agent_{i}': done for i in range(self.n_agents)}
         dones['__all__'] = done
         
-        info = {"global_state": next_state, "raw_pnl": team_reward_raw}
+        info = {
+            "global_state": next_state, 
+            "raw_pnl": team_reward_raw,
+            "portfolio_value": new_portfolio_value,
+            "shares": self.shares,
+            "cash": self.cash
+        }
         
         return next_obs, rewards, dones, False, info
