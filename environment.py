@@ -209,13 +209,14 @@ class MARLStockEnv(gym.Env):
         self.reward_history.append(team_return_pct)
 
         # 3. 최근 20일간의 수익 변동성(표준편차) 계산
-        daily_volatility = np.std(self.reward_history) + 1e-9
+        daily_volatility = np.std(self.reward_history) + 1e-6
 
-        # 4. 수익 증대 보상 함수
-        # - 수익률 가중치 증가로 더 적극적 수익 추구
-        # - 샤프 비율로 리스크는 여전히 관리
+        # 4. 수익 중심 보상 함수
+        # - 수익률에 높은 가중치 (수익 극대화)
+        # - Sharpe 비율 클리핑으로 안정성 확보
         sharpe_component = team_return_pct / daily_volatility
-        team_reward = (team_return_pct * 130.0) + (sharpe_component * 0.7)
+        sharpe_component = np.clip(sharpe_component, -3.0, 3.0)  # 극단값 방지
+        team_reward = (team_return_pct * 2000.0) + (sharpe_component * 0.5)
 
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         

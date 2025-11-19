@@ -17,8 +17,8 @@ MIXER_EMBED_DIM = 32
 # --- 데이터 설정 ---
 TICKER = "005930.KS"
 VIX_TICKER = "^VIX"
-START_DATE = "2014-11-18"  # 10년 데이터 (학습 9년 + 백테스팅 1년)
-END_DATE = "2024-11-17"
+START_DATE = "2014-11-17"  # 10년 데이터 (학습 10년 + 백테스팅 1년)
+END_DATE = "2025-11-18"
 
 # --- 학습 설정 ---
 NUM_EPISODES = 500
