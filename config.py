@@ -21,4 +21,4 @@ START_DATE = "2014-11-18"  # 10년 데이터 (학습 9년 + 백테스팅 1년)
 END_DATE = "2024-11-17"
 
 # --- 학습 설정 ---
-NUM_EPISODES = 5
+NUM_EPISODES = 500
