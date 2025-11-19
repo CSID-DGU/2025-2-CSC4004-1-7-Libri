@@ -163,23 +163,23 @@ class MARLStockEnv(gym.Env):
         # 투표 합산 및 신호 강도 계산
         vote_sum = sum(votes)
         
-        # 신호 강도에 따른 행동 결정
-        if vote_sum > 0:
+        # 신호 강도에 따른 행동 결정 (3표 이상부터 매수/매도)
+        if vote_sum >= 3:
             final_action = 0  # Buy
-            signal_strength = vote_sum / self.n_agents  # 0.25 ~ 1.0 (1~4표)
-        elif vote_sum < 0:
+            signal_strength = vote_sum / self.n_agents  # 0.75 ~ 1.0 (3~4표)
+        elif vote_sum <= -3:
             final_action = 2  # Sell
-            signal_strength = abs(vote_sum) / self.n_agents  # 0.25 ~ 1.0 (1~4표)
+            signal_strength = abs(vote_sum) / self.n_agents  # 0.75 ~ 1.0 (3~4표)
         else:
-            final_action = 1  # Hold
+            final_action = 1  # Hold (투표 -2 ~ +2는 관망)
             signal_strength = 0.0
         
         # 실제 거래 실행
         old_portfolio_value = self.cash + (self.shares * old_price)
         
         if final_action == 0:  # Buy
-            # 신호 강도에 비례해서 매수 (1표=22.5%, 2표=45%, 3표=67.5%, 4표=90%)
-            buy_ratio = signal_strength * 0.9
+            # 신호 강도에 비례해서 매수 (3표=37.5%, 4표=50%)
+            buy_ratio = signal_strength * 0.5
             buy_amount = self.cash * buy_ratio
             if buy_amount > new_price:
                 buy_shares = int(buy_amount / new_price)
@@ -188,9 +188,9 @@ class MARLStockEnv(gym.Env):
                 self.cash -= cost
                 
         elif final_action == 2:  # Sell
-            # 신호 강도에 비례해서 매도 (1표=22.5%, 2표=45%, 3표=67.5%, 4표=90%)
+            # 신호 강도에 비례해서 매도 (3표=37.5%, 4표=50%)
             if self.shares > 0:
-                sell_ratio = signal_strength * 0.9
+                sell_ratio = signal_strength * 0.5
                 sell_shares = int(self.shares * sell_ratio)
                 if sell_shares > 0:
                     revenue = sell_shares * new_price
