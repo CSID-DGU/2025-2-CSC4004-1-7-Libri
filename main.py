@@ -2,6 +2,9 @@ import argparse
 import torch
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from datetime import datetime
 
 from config import (
     DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
@@ -11,6 +14,68 @@ from data_processor import DataProcessor
 from environment import MARLStockEnv
 from qmix_model import QMIX_Learner
 from replay_buffer import ReplayBuffer
+
+# --- 백테스트 결과 그래프 함수 ---
+def plot_backtest_results(portfolio_values, daily_pnls, test_prices, initial_capital):
+    """백테스트 결과를 시각화하는 함수"""
+    dates = test_prices.index[:len(portfolio_values)]
+    
+    # 성과 지표 계산
+    returns = pd.Series(daily_pnls) / initial_capital
+    
+    # Sharpe Ratio
+    sharpe = (returns.mean() / (returns.std() + 1e-9)) * np.sqrt(252)
+    
+    # Sortino Ratio (하방 변동성만 고려)
+    downside_returns = returns[returns < 0]
+    downside_std = downside_returns.std() if len(downside_returns) > 0 else 1e-9
+    sortino = (returns.mean() / (downside_std + 1e-9)) * np.sqrt(252)
+    
+    # MDD (Maximum Drawdown)
+    cumulative = np.array(portfolio_values)
+    running_max = np.maximum.accumulate(cumulative)
+    drawdown = (cumulative - running_max) / running_max
+    mdd = drawdown.min() * 100
+    
+    # KOSPI 벤치마크 (Buy & Hold)
+    kospi_start = test_prices.iloc[0]
+    kospi_values = [(initial_capital / kospi_start) * price for price in test_prices.iloc[:len(portfolio_values)]]
+    
+    # 그래프 생성
+    fig, ax = plt.subplots(figsize=(14, 8))
+    
+    # 제목과 성과 지표
+    title = f'QMIX 4-Agent 백테스트 성과\n초기자금: {initial_capital:,.0f}원 | Sharpe: {sharpe:.3f} | Sortino: {sortino:.3f} | MDD: {mdd:.2f}%'
+    fig.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
+    
+    # QMIX Agent 포트폴리오
+    ax.plot(dates, portfolio_values, label='QMIX Agent', color='#2E86AB', linewidth=2.5, zorder=3)
+    
+    # KOSPI 벤치마크
+    ax.plot(dates, kospi_values, label='KOSPI (Buy & Hold)', color='#A23B72', linewidth=2, linestyle='--', alpha=0.8, zorder=2)
+    
+    # 초기 자본 기준선
+    ax.axhline(y=initial_capital, color='gray', linestyle=':', linewidth=1.5, alpha=0.5, label='초기 자본')
+    
+    # 축 설정
+    ax.set_xlabel('날짜', fontsize=12, fontweight='bold')
+    ax.set_ylabel('포트폴리오 가치 (원)', fontsize=12, fontweight='bold')
+    ax.legend(loc='best', fontsize=11, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    
+    # Y축 포맷 (백만 원 단위)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{x/1e6:.1f}M'))
+    
+    # X축 포맷 (2개월 간격)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+    
+    plt.tight_layout()
+    plt.savefig('backtest_results.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return sharpe, sortino, mdd
 
 # --- [수정] 4개 에이전트의 신호 변환 ---
 def convert_joint_action_to_signal(joint_action, action_map):
@@ -266,6 +331,14 @@ def main():
         print(f"    - 일 수익 변동성   : {daily_std:.4f}")
         print(f"    - 샤프 비율 (연환산): {sharpe_ratio:.3f}")
         print(f"    - 승률 (일별)      : {win_rate:.2f}% ({win_days}/{test_days}일)")
+        
+        # 그래프 출력
+        print("\n--- [3] 백테스트 결과 그래프 생성 중 ---")
+        graph_sharpe, graph_sortino, graph_mdd = plot_backtest_results(portfolio_values, all_raw_pnls, test_prices, CAPITAL)
+        print(f"    Sharpe Ratio: {graph_sharpe:.3f}")
+        print(f"    Sortino Ratio: {graph_sortino:.3f}")
+        print(f"    MDD: {graph_mdd:.2f}%")
+        print("    그래프가 저장되었습니다: backtest_results.png")
     else:
         print("    - 백테스트 기간이 0일이어서 성능을 측정할 수 없습니다.")
 
