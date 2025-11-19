@@ -163,15 +163,15 @@ class MARLStockEnv(gym.Env):
         # 투표 합산 및 신호 강도 계산
         vote_sum = sum(votes)
         
-        # 신호 강도에 따른 행동 결정 (3표 이상부터 매수/매도)
-        if vote_sum >= 3:
+        # 신호 강도에 따른 행동 결정 (2표 이상부터 매수/매도)
+        if vote_sum >= 2:
             final_action = 0  # Buy
-            signal_strength = vote_sum / self.n_agents  # 0.75 ~ 1.0 (3~4표)
-        elif vote_sum <= -3:
+            signal_strength = vote_sum / self.n_agents  # 0.5 ~ 1.0 (2~4표)
+        elif vote_sum <= -2:
             final_action = 2  # Sell
-            signal_strength = abs(vote_sum) / self.n_agents  # 0.75 ~ 1.0 (3~4표)
+            signal_strength = abs(vote_sum) / self.n_agents  # 0.5 ~ 1.0 (2~4표)
         else:
-            final_action = 1  # Hold (투표 -2 ~ +2는 관망)
+            final_action = 1  # Hold (투표 -1 ~ +1은 관망)
             signal_strength = 0.0
         
         # 실제 거래 실행
