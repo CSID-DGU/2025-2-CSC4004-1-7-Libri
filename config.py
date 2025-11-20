@@ -1,5 +1,6 @@
 import torch
 
+<<<<<<< HEAD
 # --- 설정 ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -14,10 +15,19 @@ BATCH_SIZE = 128  # 64 -> 128
 
 # [개선 4] Buffer Size 증가 - 더 다양한 경험
 BUFFER_SIZE = int(1e5)  # 5e4 -> 1e5
+=======
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+GAMMA = 0.99
+LR = 1e-4
+
+BATCH_SIZE = 64
+BUFFER_SIZE = int(1e5)
+>>>>>>> aa
 
 WINDOW_SIZE = 10
 N_AGENTS = 3
 
+<<<<<<< HEAD
 # [개선 5] Target Update 빈도 감소 - 안정성 향상
 TARGET_UPDATE_FREQ = 500  # 1000 -> 500
 
@@ -48,3 +58,23 @@ WARMUP_STEPS = 5000  # 학습 전 랜덤 행동으로 경험 수집
 
 # [개선 10] 보상 스케일링 - Q-value collapse 방지를 위해 크게 증가
 REWARD_SCALE = 100.0  # 보상을 주가 대비 비율로 변환
+=======
+TARGET_UPDATE_FREQ = 500
+TAU = 0.01
+MIXER_EMBED_DIM = 64
+
+TICKER = "005930.KS"
+VIX_TICKER = "^VIX"
+#학습기간 10년
+START_DATE = "2015-11-18"
+END_DATE = "2025-11-17"
+
+NUM_EPISODES = 300
+
+EPSILON_START = 1.0
+EPSILON_END = 0.1
+EPSILON_DECAY_STEPS = 150000 
+
+WARMUP_STEPS = 2000 
+REWARD_SCALE = 10.0
+>>>>>>> aa

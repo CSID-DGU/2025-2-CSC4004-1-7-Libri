@@ -1,0 +1,190 @@
+nohup: ignoring input
+사용 장치: cuda
+데이터 다운로드 중 (005930.KS, ^VIX)...
+기술적 지표 및 재무 지표 계산 중...
+분기별 재무제표 가져오는 중...
+... 재무제표에 2개월 공시 지연(lag) 적용 ...
+애널리스트 추천 정보 (시계열) 가져오는 중...
+--- 데이터 처리 완료 (정규화 전) ---
+총 2413일의 데이터
+사용된 지표 (총 16개): ATR, AnalystRating, Bollinger_B, Close, DebtRatio, High, Low, MACD, MACD_Signal, ROA, RSI, SMA20, Stoch_D, Stoch_K, VIX, Volume
+  - Agent 0 (단기): 9개
+  - Agent 1 (중기): 7개
+  - Agent 2 (시장/펀더멘탈): 8개
+데이터 정규화 중 (Train-Test 분리 적용)...
+
+--- QMIX 300 에피소드 학습 시작 ---
+--- Obs: A0=92, A1=72, A2=82 | State=166 ---
+--- Warmup: 2000 steps with random actions ---
+--- 조기 종료: 20 에피소드마다 검증, patience=5 ---
+Warmup complete! Starting policy learning...
+Ep 1/300 | Eps: 0.999 | R: -16.07 | Avg: -16.07 | Best: -16.07 | Q: 76.35 | L: 17.1866 | Time: 0.1m
+Ep 2/300 | Eps: 0.986 | R: -15.05 | Avg: -15.56 | Best: -15.05 | Q: 74.93 | L: 14.8203 | Time: 0.6m
+Ep 3/300 | Eps: 0.973 | R: -13.69 | Avg: -14.94 | Best: -13.69 | Q: 75.28 | L: 13.7622 | Time: 1.1m
+Ep 4/300 | Eps: 0.960 | R: -18.26 | Avg: -15.77 | Best: -13.69 | Q: 75.50 | L: 13.0037 | Time: 1.6m
+Ep 5/300 | Eps: 0.947 | R: -16.39 | Avg: -15.89 | Best: -13.69 | Q: 75.44 | L: 12.3328 | Time: 2.1m
+Ep 6/300 | Eps: 0.934 | R: -24.49 | Avg: -17.32 | Best: -13.69 | Q: 75.19 | L: 11.7279 | Time: 2.7m
+Ep 7/300 | Eps: 0.921 | R: -14.36 | Avg: -16.90 | Best: -13.69 | Q: 74.75 | L: 11.1571 | Time: 3.2m
+Ep 8/300 | Eps: 0.908 | R: -9.73 | Avg: -16.00 | Best: -9.73 | Q: 74.23 | L: 10.6297 | Time: 3.7m
+Ep 9/300 | Eps: 0.895 | R: -13.84 | Avg: -15.76 | Best: -9.73 | Q: 73.64 | L: 10.1320 | Time: 4.2m
+Ep 10/300 | Eps: 0.882 | R: -25.61 | Avg: -16.75 | Best: -9.73 | Q: 73.02 | L: 9.6679 | Time: 4.7m
+Ep 20/300 | Eps: 0.753 | R: -11.69 | Avg: -14.50 | Best: -8.82 | Q: 60.21 | L: 3.1472 | Time: 10.0m
+Ep 30/300 | Eps: 0.623 | R: -9.10 | Avg: -6.58 | Best: 9.14 | Q: 52.02 | L: 1.1484 | Time: 15.4m
+Ep 40/300 | Eps: 0.494 | R: -8.39 | Avg: -8.80 | Best: 9.14 | Q: 48.90 | L: 0.5781 | Time: 20.9m
+Ep 50/300 | Eps: 0.364 | R: 9.26 | Avg: -0.94 | Best: 11.06 | Q: 47.61 | L: 0.4043 | Time: 26.4m
+
+[검증 중... Ep 60]
+✅ 새로운 최고 검증 성능: 4.64 (모델 저장됨)
+Ep 60/300 | Eps: 0.234 | R: 6.95 | Avg: 6.98 | Best: 14.52 | Q: 46.82 | L: 0.3234 | Time: 32.1m
+Ep 70/300 | Eps: 0.105 | R: 23.51 | Avg: 19.24 | Best: 27.83 | Q: 46.02 | L: 0.2649 | Time: 37.7m
+
+[검증 중... Ep 80]
+⚠️  검증 성능: 4.18 (최고: 4.64, 정체: 1/5)
+Ep 80/300 | Eps: 0.100 | R: 17.00 | Avg: 21.76 | Best: 27.83 | Q: 45.20 | L: 0.2150 | Time: 43.2m
+Ep 90/300 | Eps: 0.100 | R: 16.73 | Avg: 20.65 | Best: 34.11 | Q: 44.43 | L: 0.1760 | Time: 48.9m
+
+[검증 중... Ep 100]
+✅ 새로운 최고 검증 성능: 6.09 (모델 저장됨)
+Ep 100/300 | Eps: 0.100 | R: 29.47 | Avg: 25.69 | Best: 34.11 | Q: 43.87 | L: 0.1500 | Time: 54.5m
+Ep 110/300 | Eps: 0.100 | R: 23.05 | Avg: 29.57 | Best: 34.53 | Q: 43.53 | L: 0.1310 | Time: 60.1m
+
+[검증 중... Ep 120]
+⚠️  검증 성능: 5.51 (최고: 6.09, 정체: 1/5)
+Ep 120/300 | Eps: 0.100 | R: 34.02 | Avg: 29.39 | Best: 37.51 | Q: 43.26 | L: 0.1169 | Time: 65.8m
+Ep 130/300 | Eps: 0.100 | R: 30.79 | Avg: 31.51 | Best: 38.09 | Q: 42.99 | L: 0.1079 | Time: 71.6m
+
+[검증 중... Ep 140]
+⚠️  검증 성능: 4.62 (최고: 6.09, 정체: 2/5)
+Ep 140/300 | Eps: 0.100 | R: 33.52 | Avg: 36.03 | Best: 41.24 | Q: 42.64 | L: 0.1010 | Time: 77.4m
+Ep 150/300 | Eps: 0.100 | R: 32.50 | Avg: 34.62 | Best: 41.24 | Q: 42.35 | L: 0.0952 | Time: 83.0m
+
+[검증 중... Ep 160]
+⚠️  검증 성능: 5.80 (최고: 6.09, 정체: 3/5)
+Ep 160/300 | Eps: 0.100 | R: 35.70 | Avg: 37.72 | Best: 43.68 | Q: 42.04 | L: 0.0921 | Time: 88.9m
+Ep 170/300 | Eps: 0.100 | R: 34.93 | Avg: 33.79 | Best: 43.68 | Q: 41.76 | L: 0.0907 | Time: 94.6m
+
+[검증 중... Ep 180]
+⚠️  검증 성능: 5.69 (최고: 6.09, 정체: 4/5)
+Ep 180/300 | Eps: 0.100 | R: 33.31 | Avg: 30.52 | Best: 43.68 | Q: 41.49 | L: 0.0913 | Time: 100.5m
+Ep 190/300 | Eps: 0.100 | R: 35.47 | Avg: 30.74 | Best: 43.68 | Q: 41.18 | L: 0.0920 | Time: 106.2m
+
+[검증 중... Ep 200]
+⚠️  검증 성능: 5.22 (최고: 6.09, 정체: 5/5)
+
+🛑 조기 종료: 200 에피소드에서 학습 중단 (성능 정체)
+Ep 200/300 | Eps: 0.100 | R: 24.53 | Avg: 26.18 | Best: 43.68 | Q: 40.93 | L: 0.0919 | Time: 111.9m
+
+최고 성능 모델 로드 중...
+/home/sally3877/OSS-Project-BE/main.py:336: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  learner.load_state_dict(torch.load('best_model.pth'))
+--- 학습 완료 ---
+
+--- 학습 곡선 분석 ---
+    - 초기 100 에피소드 평균: 4.67
+    - 최종 100 에피소드 평균: 32.01
+    - 최고 에피소드 보상: 43.68
+    - 최고 검증 보상: 6.09
+
+--- [1] 전체 테스트 기간 백테스트 ---
+
+--- [2] 백테스트 성능 지표 ---
+    - 백테스트 기간: 231 일
+    - 누적 수익: 6.01
+    - 일 평균 수익: 0.0260
+    - 일 수익 변동성: 0.0873
+    - 샤프 비율 (연환산): 4.732
+    - 승률: 61.90% (143/231 일)
+    - 최대 낙폭(MDD): -0.56
+
+    - 행동 분포:
+      Agent 0: Buy=22.9% Hold=68.8% Sell=8.2%
+      Agent 1: Buy=32.0% Hold=59.3% Sell=8.7%
+      Agent 2: Buy=6.9% Hold=76.6% Sell=16.5%
+
+--- [3] Backtest Visualization ---
+    KOSPI 지수 다운로드 중...
+/home/sally3877/OSS-Project-BE/main.py:489: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  ).fillna(method='bfill')
+    ✅ KOSPI 로드 완료 (시작: 2504.67)
+    ✅ 그래프 저장: backtest_result.png
+
+--- [3-1] Strategy Comparison ---
+    Strategy                    Final Value     Return   vs KOSPI
+    -----------------------------------------------------------------
+    QMIX Agent                   20,054,200    100.54%     34.03%
+    Buy & Hold                   18,504,000     85.04%     18.53%
+    KOSPI                        16,651,415     66.51%      0.00%
+
+    Performance Metrics:
+    - Sharpe Ratio: 2.712
+    - Sortino Ratio: 4.368
+    - Max Drawdown: -14.22%
+
+--- [4] 최종일 예측 상세 분석 ---
+
+
+=============================================
+      [ 📱 리브리 AI 분석 결과 (삼성전자) ]
+=============================================
+
+--- 1. AI 최종 신호 ---
+    보유
+    (예상 팀 Q-Value: 205.9975)
+
+--- 2. AI 설명 ---
+AI가 '보유'을 결정한 주된 이유는 다음과 같습니다.
+
+  1. 'Volume' 지표의 최근 움직임을 가장 중요하게 고려했습니다.
+  2. 'Close' 지표가 2순위로 결정에 영향을 미쳤습니다.
+  3. 마지막으로 'High' 지표를 참고했습니다.
+
+
+--- 3. 기술적 분석 상세 (최종일 기준) ---
+    (AI가 입수하여 분석한 원본 데이터입니다.)
+
+    - SMA20        : 101200.00
+    - MACD         : 3082.10
+    - MACD_Signal  : 4284.03
+    - RSI          : 49.29
+    - Stoch_K      : 29.40
+    - Stoch_D      : 36.96
+    - ATR          : 3838.12
+    - Bollinger_B  : 0.23
+    - VIX          : 19.83
+
+    (펀더멘탈 및 기타 데이터)
+
+    - ROA          : 0.01
+    - DebtRatio    : 0.21
+    - AnalystRating: 1.01
+
+--- 4. (참고) 상세 Q_total 그리드 ---
+    (모든 행동 조합의 Q_total 값입니다.)
+
+    --- [Agent 2 (시장/펀더멘탈) = Long] ---
+     (A0)       |    Long    |    Hold    |   Short    (A1)
+    --------------------------------------------------
+     Long      |   205.9554 |   205.9519 |   205.8156 | 
+     Hold      |   205.9580 |   205.9544 |   205.8182 | 
+     Short     |   205.9178 |   205.9142 |   205.7780 | 
+
+    --- [Agent 2 (시장/펀더멘탈) = Hold] ---
+     (A0)       |    Long    |    Hold    |   Short    (A1)
+    --------------------------------------------------
+     Long      |   205.9566 |   205.9530 |   205.8168 | 
+     Hold      |   205.9592 |   205.9556 |   205.8194 | 
+     Short     |   205.9190 |   205.9154 |   205.7792 | 
+
+    --- [Agent 2 (시장/펀더멘탈) = Short] ---
+     (A0)       |    Long    |    Hold    |   Short    (A1)
+    --------------------------------------------------
+     Long      |   205.9950 |   205.9914 |   205.8552 | 
+     Hold      |   205.9975 |   205.9939 |   205.8577 | 
+     Short     |   205.9573 |   205.9537 |   205.8175 | 
+
+=============================================
+
+=============================================
+  [ 📊 총 실행 시간 ]
+    111 분 58.60 초
+=============================================

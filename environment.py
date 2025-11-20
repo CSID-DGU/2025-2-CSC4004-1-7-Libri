@@ -119,15 +119,14 @@ class MARLStockEnv(gym.Env):
     def get_state(self):
         _, state = self._get_obs_and_state()
         return state
-
+    
     def step(self, actions):
         old_price = self.prices.iloc[self.current_step + self.window_size - 1]
         self.current_step += 1
         new_price = self.prices.iloc[self.current_step + self.window_size - 1]
         
-        # [개선] 비율 기반 수익률 계산
         price_return = (new_price - old_price) / (old_price + 1e-9)
-
+        
         instant_rewards = 0.0
         transaction_costs = 0.0
         
@@ -137,68 +136,66 @@ class MARLStockEnv(gym.Env):
 
             if action == 0:  # Buy
                 if current_pos == -1:
-                    # 숏 포지션 청산
                     realized_return = (self.entry_prices[i] - new_price) / (self.entry_prices[i] + 1e-9)
                     instant_rewards += realized_return
-                    transaction_costs += 0.003  # 0.3% 거래 비용
+                    transaction_costs += 0.0015  # ⭐ 0.003 → 0.0015 (0.3% → 0.15%)
                     
                 self.positions[i] = 1
                 if current_pos != 1: 
                     self.entry_prices[i] = float(new_price)
-                    transaction_costs += 0.003
+                    transaction_costs += 0.0015  # ⭐ 0.003 → 0.0015
                     
             elif action == 1:  # Hold
                 pass
                 
             elif action == 2:  # Sell
                 if current_pos == 1:
-                    # 롱 포지션 청산
                     realized_return = (new_price - self.entry_prices[i]) / (self.entry_prices[i] + 1e-9)
                     instant_rewards += realized_return
-                    transaction_costs += 0.003
+                    transaction_costs += 0.0015  # ⭐ 0.003 → 0.0015
                     
                 self.positions[i] = -1
                 if current_pos != -1:
                     self.entry_prices[i] = float(new_price)
-                    transaction_costs += 0.003
+                    transaction_costs += 0.0015  # ⭐ 0.003 → 0.0015
 
-        # [개선] 보상 계산 - 더 강한 시그널
+        # 보상 계산
         joint_position = sum(self.positions)
         
-        # 1. 비율 기반 홀딩 보상 (메인 시그널)
+        # 1. 기본 홀딩 보상
         holding_reward = float(joint_position * price_return)
         
-        # 2. 즉시 실현 수익 (강화)
-        instant_rewards = instant_rewards * 2.0  # 실현 수익에 더 큰 가중치
+        # 2. 실현 수익
+        instant_rewards = instant_rewards * 1.0
         
-        # 3. 거래 비용 페널티 감소 (너무 강한 페널티는 학습 방해)
-        transaction_costs = transaction_costs * 0.5
+        # 3. 거래 비용
+        transaction_costs = transaction_costs * 1.0
         
-        # 4. 다양성 보너스 (에이전트들이 다른 행동을 하도록 유도)
-        unique_actions = len(set(actions.values()))
-        diversity_bonus = 0.01 * (unique_actions - 1)  # 0 ~ 0.02
+        # 4. 정렬 보너스
+        alignment = abs(joint_position) / self.n_agents
+        alignment_bonus = alignment * 0.01
         
-        # 5. 포지션 유지 페널티 완화
-        hold_count = sum(1 for a in actions.values() if a == 1)
-        hold_penalty = -0.001 * hold_count if hold_count == self.n_agents else 0.0
+        # 5. 과도한 거래 페널티
+        action_changes = sum([1 for i in range(self.n_agents) 
+                            if actions[f'agent_{i}'] != 1])
+        overtrading_penalty = -0.005 * action_changes if action_changes == self.n_agents else 0
         
-        # 6. 최종 보상 (스케일 조정 전)
+        # 6. 최종 보상
         raw_team_reward = (
             holding_reward + 
             instant_rewards - 
             transaction_costs + 
-            diversity_bonus + 
-            hold_penalty
+            alignment_bonus +
+            overtrading_penalty
         )
         
         # 7. REWARD_SCALE 적용
         team_reward = raw_team_reward * REWARD_SCALE
         
-        # [개선] 보상 클리핑 제거 - 학습 시그널 유지
-        # team_reward = np.clip(team_reward, -1.0, 1.0)  # 제거
+        # 8. 보상 클리핑
+        team_reward = np.clip(team_reward, -0.1, 0.1)
         
         self.episode_returns.append(team_reward)
-
         rewards = {f'agent_{i}': team_reward for i in range(self.n_agents)}
         
         next_obs, next_state = self._get_obs_and_state()

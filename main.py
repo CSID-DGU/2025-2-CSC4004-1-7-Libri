@@ -110,6 +110,26 @@ def print_ui_output(
     print("=============================================")
 
 
+def test_model(learner, test_env, episodes=5):
+    """모델 성능을 테스트하는 함수"""
+    total_rewards = []
+    
+    for _ in range(episodes):
+        obs_dict, info = test_env.reset(initial_portfolio=None)
+        episode_reward = 0.0
+        done = False
+        
+        while not done:
+            actions_dict = learner.select_actions(obs_dict, epsilon=0.0)  # greedy
+            obs_dict, rewards_dict, dones_dict, _, info = test_env.step(actions_dict)
+            episode_reward += rewards_dict['agent_0']
+            done = dones_dict['__all__']
+        
+        total_rewards.append(episode_reward)
+    
+    return np.mean(total_rewards)
+
+
 def main():
     start_time = time.time()
     
@@ -138,7 +158,7 @@ def main():
     (features_unnormalized_df, prices_df, feature_names,
      agent_0_cols, agent_1_cols, agent_2_cols) = processor.process() 
 
-    split_idx = int(len(features_unnormalized_df) * 0.8)
+    split_idx = int(len(features_unnormalized_df) * 0.9)
     if split_idx < WINDOW_SIZE * 2:
         print("오류: 데이터가 너무 적습니다.")
         return
@@ -185,9 +205,17 @@ def main():
     episode_q_values = []
     best_reward = -np.inf
     
+    # 🆕 조기 종료를 위한 변수 추가
+    best_test_reward = -np.inf
+    no_improve_count = 0
+    patience = 5  # 100 에피소드(20*5) 동안 개선 없으면 중단
+    validation_interval = 20  # 20 에피소드마다 검증
+    early_stop = False
+    
     print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 ---")
     print(f"--- Obs: A0={obs_dim_0}, A1={obs_dim_1}, A2={obs_dim_2} | State={state_dim} ---")
     print(f"--- Warmup: {WARMUP_STEPS} steps with random actions ---")
+    print(f"--- 조기 종료: {validation_interval} 에피소드마다 검증, patience={patience} ---")
     
     for i_episode in range(NUM_EPISODES):
         obs_dict, info = train_env.reset(initial_portfolio=None) 
@@ -225,10 +253,9 @@ def main():
             buffer.add(global_state, obs_dict, actions_dict, team_reward, 
                        next_global_state, next_obs_dict, done)
                        
-            # [개선] 학습은 warmup 후에만 시작
             if warmup_done and len(buffer) >= BATCH_SIZE * 2:
-                # 초반에는 더 많이 학습
-                num_updates = 8 if i_episode < 50 else 4
+                num_updates = 2 
+                
                 for _ in range(num_updates):
                     loss, q_val = learner.train(buffer)
                     if loss is not None:
@@ -251,7 +278,24 @@ def main():
         # [개선] Best 모델 저장
         if episode_team_reward > best_reward:
             best_reward = episode_team_reward
-            # torch.save(learner.state_dict(), 'best_model.pth')
+
+        # 🆕 조기 종료 로직 추가
+        if warmup_done and i_episode >= 50 and (i_episode + 1) % validation_interval == 0:
+            print(f"\n[검증 중... Ep {i_episode+1}]")
+            test_reward = test_model(learner, test_env, episodes=3)
+            
+            if test_reward > best_test_reward:
+                best_test_reward = test_reward
+                torch.save(learner.state_dict(), 'best_model.pth')
+                no_improve_count = 0
+                print(f"✅ 새로운 최고 검증 성능: {test_reward:.2f} (모델 저장됨)")
+            else:
+                no_improve_count += 1
+                print(f"⚠️  검증 성능: {test_reward:.2f} (최고: {best_test_reward:.2f}, 정체: {no_improve_count}/{patience})")
+            
+            if no_improve_count >= patience:
+                print(f"\n🛑 조기 종료: {i_episode + 1} 에피소드에서 학습 중단 (성능 정체)")
+                early_stop = True
 
         # [수정] 매 에피소드마다 출력 + 시간 표시
         ep_time = time.time() - start_time
@@ -281,6 +325,15 @@ def main():
                       f"Avg: {avg_reward:.2f} | "
                       f"Best: {best_reward:.2f} | "
                       f"Time: {ep_time/60:.1f}m")
+        
+        # 🆕 조기 종료 체크
+        if early_stop:
+            break
+
+    # 🆕 최고 모델 로드 (조기 종료 시)
+    if early_stop and best_test_reward > -np.inf:
+        print("\n최고 성능 모델 로드 중...")
+        learner.load_state_dict(torch.load('best_model.pth'))
 
     print("--- 학습 완료 ---")
 
@@ -293,6 +346,7 @@ def main():
         print(f"    - 초기 50 에피소드 평균: {np.mean(episode_rewards[:min(50, len(episode_rewards))]):.2f}")
         print(f"    - 최종 50 에피소드 평균: {np.mean(episode_rewards[-min(50, len(episode_rewards)):]):.2f}")
     print(f"    - 최고 에피소드 보상: {best_reward:.2f}")
+    print(f"    - 최고 검증 보상: {best_test_reward:.2f}")
 
     print("\n--- [1] 전체 테스트 기간 백테스트 ---")
     
@@ -349,9 +403,193 @@ def main():
             print(f"      Agent {i}: Buy={buy_pct:.1f}% Hold={hold_pct:.1f}% Sell={sell_pct:.1f}%")
     else:
         print("    - 백테스트 기간이 0일입니다.")
+    
+        # 🆕 백테스트 그래프 생성 (KOSPI 비교 추가)
+    if test_days > 0:
+        print("\n--- [3] Backtest Visualization ---")
+        
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+            import matplotlib.font_manager as fm
+            import yfinance as yf
+            
+            # 한글 폰트 설정
+            fm.fontManager = fm.FontManager()
+            plt.rcParams['font.family'] = 'NanumGothic'
+            plt.rcParams['axes.unicode_minus'] = False
+            
+            # 초기 자본
+            initial_capital = 10_000_000
+            
+            # AI 전략 시뮬레이션
+            cash = initial_capital
+            position = 0
+            ai_values = [initial_capital]
+            
+            for step in range(test_days - 1):
+                current_price = test_prices.iloc[step + WINDOW_SIZE]
+                
+                # AI 행동
+                actions = all_actions_log[step]
+                joint_action = sum([1 if a == 0 else (-1 if a == 2 else 0) for a in actions])
+                
+                # 매수
+                if joint_action >= 2 and position == 0:
+                    shares = cash // current_price
+                    position = shares
+                    cash -= shares * current_price
+                # 매도
+                elif joint_action <= -2 and position > 0:
+                    cash += position * current_price
+                    position = 0
+                
+                # 포트폴리오 가치
+                next_price = test_prices.iloc[step + WINDOW_SIZE + 1]
+                portfolio_value = cash + (position * next_price)
+                ai_values.append(portfolio_value)
+            
+            # Buy & Hold (삼성전자)
+            initial_shares = initial_capital // test_prices.iloc[WINDOW_SIZE]
+            buy_hold_values = []
+            for step in range(test_days):
+                price = test_prices.iloc[step + WINDOW_SIZE]
+                buy_hold_values.append(initial_shares * price)
+            
+            # 🆕 KOSPI 지수 다운로드
+            kospi_values = []
+            try:
+                test_start = test_prices.index[WINDOW_SIZE]
+                test_end = test_prices.index[WINDOW_SIZE + test_days - 1]
+                
+                print(f"    KOSPI 지수 다운로드 중...")
+                
+                # KOSPI 다운로드
+                kospi_df = yf.download('^KS11', 
+                                      start=test_start - pd.Timedelta(days=10), 
+                                      end=test_end + pd.Timedelta(days=2),
+                                      progress=False,
+                                      auto_adjust=True)
+                
+                if not kospi_df.empty:
+                    # Close 컬럼 확인
+                    if isinstance(kospi_df.columns, pd.MultiIndex):
+                        kospi_close = kospi_df['Close'].iloc[:, 0]
+                    else:
+                        kospi_close = kospi_df['Close']
+                    
+                    kospi_df.index = pd.to_datetime(kospi_df.index).tz_localize(None)
+                    
+                    # 테스트 기간과 정렬
+                    kospi_aligned = kospi_close.reindex(
+                        test_prices.index[WINDOW_SIZE:WINDOW_SIZE + test_days],
+                        method='ffill'
+                    ).fillna(method='bfill')
+                    
+                    # float 변환
+                    kospi_start = float(kospi_aligned.iloc[0])
+                    
+                    for step in range(test_days):
+                        kospi_price = float(kospi_aligned.iloc[step])
+                        kospi_values.append(initial_capital * (kospi_price / kospi_start))
+                    
+                    print(f"    ✅ KOSPI 로드 완료 (시작: {kospi_start:.2f})")
+                else:
+                    raise Exception("KOSPI 데이터 없음")
+                
+            except Exception as e:
+                print(f"    ⚠️  KOSPI 로드 실패: {e}")
+                # 삼성전자로 대체
+                samsung_start = float(test_prices.iloc[WINDOW_SIZE])
+                kospi_values = [initial_capital * (float(test_prices.iloc[step + WINDOW_SIZE]) / samsung_start) 
+                               for step in range(test_days)]
+            
+            # 날짜 인덱스 생성
+            if isinstance(test_prices.index, pd.DatetimeIndex):
+                test_dates = test_prices.iloc[WINDOW_SIZE:WINDOW_SIZE + test_days].index
+                use_dates = True
+            else:
+                test_dates = pd.date_range(start='2024-01-01', periods=test_days, freq='D')
+                use_dates = True
+            
+            # 성능 계산
+            ai_final = ai_values[-1]
+            bh_final = buy_hold_values[-1]
+            kospi_final = kospi_values[-1] if kospi_values else initial_capital
+            
+            ai_return = (ai_final - initial_capital) / initial_capital * 100
+            bh_return = (bh_final - initial_capital) / initial_capital * 100
+            kospi_return = (kospi_final - initial_capital) / initial_capital * 100
+            
+            ai_returns = pd.Series(ai_values).pct_change().dropna()
+            sharpe = (ai_returns.mean() / ai_returns.std()) * np.sqrt(252) if len(ai_returns) > 0 else 0
+            
+            downside_returns = ai_returns[ai_returns < 0]
+            sortino = (ai_returns.mean() / downside_returns.std()) * np.sqrt(252) if len(downside_returns) > 0 else 0
+            
+            cumulative = pd.Series(ai_values)
+            running_max = cumulative.cummax()
+            drawdown = (cumulative - running_max) / running_max * 100
+            mdd = drawdown.min()
+            
+            # 그래프 그리기
+            fig, ax = plt.subplots(figsize=(14, 8))
+            
+            ax.plot(test_dates, ai_values[:len(test_dates)], 
+                   label=f'QMIX Agent (최종: {ai_final:,.0f} 원)', 
+                   linewidth=2, color='#1f77b4', linestyle='-')
+            ax.plot(test_dates, buy_hold_values[:len(test_dates)], 
+                   label=f'Buy & Hold (최종: {bh_final:,.0f} 원)', 
+                   linewidth=2, linestyle='--', color='#ff7f0e')
+            ax.plot(test_dates, kospi_values[:len(test_dates)], 
+                   label=f'KOSPI (최종: {kospi_final:,.0f} 원)', 
+                   linewidth=1.5, linestyle=':', color='#808080')
+            
+            title_text = f'QMIX 백테스트 성과 (초기자금: {initial_capital:,} 원)\n'
+            title_text += f'Sharpe: {sharpe:.3f} | Sortino: {sortino:.3f} | MDD: {mdd:.2f}%'
+            ax.set_title(title_text, fontsize=13, pad=15)
+            
+            ax.set_xlabel('날짜', fontsize=11)
+            ax.set_ylabel('포트폴리오 가치 (원)', fontsize=11)
+            ax.legend(loc='upper left', fontsize=9, framealpha=0.95, fancybox=True, shadow=True)
+            ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+            ax.set_axisbelow(True)
+            
+            if use_dates:
+                ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+                ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+                plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha='center')
+            
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+            ax.spines['top'].set_visible(True)
+            ax.spines['right'].set_visible(True)
+            
+            plt.tight_layout()
+            plt.savefig('backtest_result.png', dpi=300, bbox_inches='tight', facecolor='white')
+            print("    ✅ 그래프 저장: backtest_result.png")
+            plt.close()
+            
+            # 성능 비교
+            print(f"\n--- [3-1] Strategy Comparison ---")
+            print(f"    {'Strategy':<20} {'Final Value':>18} {'Return':>10} {'vs KOSPI':>10}")
+            print(f"    {'-'*65}")
+            print(f"    {'QMIX Agent':<20} {ai_final:>18,.0f} {ai_return:>9.2f}% {ai_return - kospi_return:>9.2f}%")
+            print(f"    {'Buy & Hold':<20} {bh_final:>18,.0f} {bh_return:>9.2f}% {bh_return - kospi_return:>9.2f}%")
+            print(f"    {'KOSPI':<20} {kospi_final:>18,.0f} {kospi_return:>9.2f}% {0:>9.2f}%")
+            print(f"\n    Performance Metrics:")
+            print(f"    - Sharpe Ratio: {sharpe:.3f}")
+            print(f"    - Sortino Ratio: {sortino:.3f}")
+            print(f"    - Max Drawdown: {mdd:.2f}%")
+            
+        except Exception as e:
+            print(f"    ⚠️  그래프 생성 실패: {e}")
+            import traceback
+            traceback.print_exc()
 
     # --- 최종일 분석 (기존 코드 유지) ---
-    print("\n--- [3] 최종일 예측 상세 분석 ---")
+    print("\n--- [4] 최종일 예측 상세 분석 ---")
     
     final_obs_dict = obs_dict
     action_map = {0: "Long", 1: "Hold", 2: "Short"}

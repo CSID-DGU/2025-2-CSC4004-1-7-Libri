@@ -6,39 +6,26 @@ import random
 import numpy as np
 from config import N_AGENTS, LR, TAU, MIXER_EMBED_DIM, BATCH_SIZE, GAMMA
 
-# --- [개선] Dueling DQN 구조 ---
+# --- [개선] Dueling DQN 구조 (최적화 버전) ---
 class Q_Net(nn.Module):
-    def __init__(self, state_dim, action_dim, hid_shape=(256, 128, 64)):
+    def __init__(self, state_dim, action_dim, hid_shape=(64, 32)):  # 더 작게
         super().__init__()
         
-        # Shared Feature Extractor
         self.feature = nn.Sequential(
             nn.Linear(state_dim, hid_shape[0]),
-            nn.LayerNorm(hid_shape[0]),  # Batch Norm 대신 Layer Norm
+            nn.LayerNorm(hid_shape[0]),  # 🆕 LayerNorm 추가
             nn.ReLU(),
-            nn.Dropout(p=0.2),
+            nn.Dropout(p=0.2),  # 0.1 -> 0.2 (더 강한 정규화)
             
             nn.Linear(hid_shape[0], hid_shape[1]),
-            nn.LayerNorm(hid_shape[1]),
+            nn.LayerNorm(hid_shape[1]),  # 🆕 LayerNorm 추가
             nn.ReLU(),
             nn.Dropout(p=0.2),
         )
         
-        # Value Stream (상태 가치)
-        self.value_stream = nn.Sequential(
-            nn.Linear(hid_shape[1], hid_shape[2]),
-            nn.ReLU(),
-            nn.Linear(hid_shape[2], 1)
-        )
+        self.value_stream = nn.Linear(hid_shape[1], 1)
+        self.advantage_stream = nn.Linear(hid_shape[1], action_dim)
         
-        # Advantage Stream (행동 우위)
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(hid_shape[1], hid_shape[2]),
-            nn.ReLU(),
-            nn.Linear(hid_shape[2], action_dim)
-        )
-        
-        # [개선] Xavier 초기화
         self.apply(self._init_weights)
     
     def _init_weights(self, m):
@@ -120,7 +107,7 @@ class DQN_Agent:
         return action_idx, q_values.squeeze(0).detach().cpu(), sorted_importance
 
 
-# --- [개선] 더 깊고 표현력 있는 Mixer ---
+# --- [개선] 최적화된 Mixer 네트워크 ---
 class Mixer(nn.Module):
     def __init__(self, n_agents, state_dim, embed_dim):
         super().__init__()
@@ -128,35 +115,25 @@ class Mixer(nn.Module):
         self.state_dim = state_dim
         self.embed_dim = embed_dim
         
-        # Hypernet for W1 (더 깊은 구조)
+        # Hypernet for W1 (단순화)
         self.hyper_w1 = nn.Sequential(
-            nn.Linear(state_dim, 128),
+            nn.Linear(state_dim, 64),
             nn.ReLU(),
-            nn.Linear(128, embed_dim * n_agents),
-            nn.ReLU()
+            nn.Linear(64, embed_dim * n_agents)
         )
         
         # Hypernet for b1
-        self.hyper_b1 = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, embed_dim)
-        )
+        self.hyper_b1 = nn.Linear(state_dim, embed_dim)
         
-        # Hypernet for W2 (더 깊은 구조)
+        # Hypernet for W2 (단순화)
         self.hyper_w2 = nn.Sequential(
-            nn.Linear(state_dim, 64),
+            nn.Linear(state_dim, 32),
             nn.ReLU(),
-            nn.Linear(64, embed_dim),
-            nn.ReLU()
+            nn.Linear(32, embed_dim)
         )
         
         # Hypernet for b2
-        self.hyper_b2 = nn.Sequential(
-            nn.Linear(state_dim, 32),
-            nn.ReLU(),
-            nn.Linear(32, 1)
-        )
+        self.hyper_b2 = nn.Linear(state_dim, 1)
         
         # [개선] Xavier 초기화
         self.apply(self._init_weights)
@@ -211,11 +188,11 @@ class QMIX_Learner:
         self.params += list(self.mixer.parameters())
         
         # [개선] AdamW 옵티마이저 + 가중치 감쇠
-        self.optimizer = torch.optim.AdamW(self.params, lr=LR, weight_decay=1e-5)
+        self.optimizer = torch.optim.AdamW(self.params, lr=LR, weight_decay=1e-4)
         
         # [개선] Learning Rate Scheduler
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=1000, eta_min=1e-6
+            self.optimizer, T_max=500, eta_min=1e-6  # 1000 -> 500 (에피소드 감소에 맞춤)
         )
         
     def select_actions(self, obs_dict, epsilon):
@@ -272,3 +249,24 @@ class QMIX_Learner:
             
         for param, target_param in zip(self.mixer.parameters(), self.target_mixer.parameters()):
             target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)
+
+    def state_dict(self):
+        state = {
+            'agents': [agent.q_net.state_dict() for agent in self.agents],
+            'target_agents': [agent.target_q_net.state_dict() for agent in self.agents],
+            'mixer': self.mixer.state_dict(),
+            'target_mixer': self.target_mixer.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict()
+        }
+        return state
+
+    def load_state_dict(self, state_dict):
+        for i, agent in enumerate(self.agents):
+            agent.q_net.load_state_dict(state_dict['agents'][i])
+            agent.target_q_net.load_state_dict(state_dict['target_agents'][i])
+        
+        self.mixer.load_state_dict(state_dict['mixer'])
+        self.target_mixer.load_state_dict(state_dict['target_mixer'])
+        self.optimizer.load_state_dict(state_dict['optimizer'])
+        self.scheduler.load_state_dict(state_dict['scheduler'])
