@@ -187,10 +187,10 @@ def main():
     (features_unnormalized_df, prices_df, feature_names,
      agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols) = processor.process() # <-- 수정
 
-    # 백테스팅 기간: 마지막 1년 (약 252 거래일)
-    # 학습 기간: 나머지 9년
+    # 백테스팅 기간: 마지막 1년 (252 거래일)
+    # 학습 기간: 나머지 약 10년
     total_days = len(features_unnormalized_df)
-    test_days = min(252, int(total_days * 0.1))  # 1년 또는 10% 중 작은 값
+    test_days = 252  # 1년 (약 252 거래일)
     split_idx = total_days - test_days
     
     if split_idx < WINDOW_SIZE * 2:
