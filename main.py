@@ -281,6 +281,9 @@ def main():
             print(f"Episode {i_episode+1}/{NUM_EPISODES} | Epsilon: {epsilon:.3f} | Team Reward: {episode_team_reward:.2f}")
 
     print("--- 학습 완료 ---")
+    
+    # 학습된 모델 저장
+    learner.save_model('qmix_model.pth')
 
     print("\n--- [1] 전체 테스트 기간 백테스트 수행 중 ---")
     print(f"--- 초기 투자 금액: {CAPITAL:,.0f}원 ---")

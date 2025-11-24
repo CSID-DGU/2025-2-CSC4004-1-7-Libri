@@ -203,3 +203,29 @@ class QMIX_Learner:
             
         for param, target_param in zip(self.mixer.parameters(), self.target_mixer.parameters()):
             target_param.data.copy_(TAU * param.data + (1 - TAU) * target_param.data)
+    
+    def save_model(self, path='qmix_model.pth'):
+        """모델 저장"""
+        checkpoint = {
+            'agents': [agent.q_net.state_dict() for agent in self.agents],
+            'mixer': self.mixer.state_dict(),
+            'optimizer': self.optimizer.state_dict()
+        }
+        torch.save(checkpoint, path)
+        print(f"모델 저장 완료: {path}")
+    
+    def load_model(self, path='qmix_model.pth'):
+        """모델 로드"""
+        checkpoint = torch.load(path, map_location=self.dvc)
+        
+        for i, agent in enumerate(self.agents):
+            agent.q_net.load_state_dict(checkpoint['agents'][i])
+            agent.target_q_net = copy.deepcopy(agent.q_net)
+        
+        self.mixer.load_state_dict(checkpoint['mixer'])
+        self.target_mixer = copy.deepcopy(self.mixer)
+        
+        if 'optimizer' in checkpoint:
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+        
+        print(f"모델 로드 완료: {path}")
