@@ -261,34 +261,34 @@ def main():
         
         # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
         for i_episode in range(NUM_EPISODES):
-        obs_dict, info = train_env.reset(initial_portfolio=None) 
-        global_state = info["global_state"]
-        episode_team_reward = 0.0
-        done = False
-        
-        while not done:
-            total_steps += 1
-            epsilon = max(0.01, 1.0 - total_steps / 50000)
+            obs_dict, info = train_env.reset(initial_portfolio=None) 
+            global_state = info["global_state"]
+            episode_team_reward = 0.0
+            done = False
+            
+            while not done:
+                total_steps += 1
+                epsilon = max(0.01, 1.0 - total_steps / 50000)
 
-            
-            actions_dict = learner.select_actions(obs_dict, epsilon)
-            next_obs_dict, rewards_dict, dones_dict, _, info = train_env.step(actions_dict)
-            
-            next_global_state = info["global_state"]
-            team_reward = rewards_dict['agent_0']
-            done = dones_dict['__all__']
-            
-            buffer.add(global_state, obs_dict, actions_dict, team_reward, 
-                       next_global_state, next_obs_dict, done)
-                       
-            learner.train(buffer)
-            
-            episode_team_reward += team_reward
-            obs_dict = next_obs_dict
-            global_state = next_global_state
+                
+                actions_dict = learner.select_actions(obs_dict, epsilon)
+                next_obs_dict, rewards_dict, dones_dict, _, info = train_env.step(actions_dict)
+                
+                next_global_state = info["global_state"]
+                team_reward = rewards_dict['agent_0']
+                done = dones_dict['__all__']
+                
+                buffer.add(global_state, obs_dict, actions_dict, team_reward, 
+                           next_global_state, next_obs_dict, done)
+                           
+                learner.train(buffer)
+                
+                episode_team_reward += team_reward
+                obs_dict = next_obs_dict
+                global_state = next_global_state
 
-            if total_steps % TARGET_UPDATE_FREQ == 0:
-                learner.update_target_networks()
+                if total_steps % TARGET_UPDATE_FREQ == 0:
+                    learner.update_target_networks()
 
             if (i_episode + 1) % 1 == 0:
                 print(f"Episode {i_episode+1}/{NUM_EPISODES} | Epsilon: {epsilon:.3f} | Team Reward: {episode_team_reward:.2f}")
