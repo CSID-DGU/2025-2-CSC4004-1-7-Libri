@@ -164,6 +164,8 @@ def print_ui_output(
 def main():
     parser = argparse.ArgumentParser(description="QMIX Stock Trading AI")
     parser.add_argument('--capital', type=float, default=10000000, help="투자 금액 (원) (예: 10000000 = 1000만원)")
+    parser.add_argument('--load-model', type=str, default=None, help="학습된 모델 파일 경로 (예: qmix_model.pth)")
+    parser.add_argument('--skip-training', action='store_true', help="학습 건너뛰고 백테스트만 수행")
     args = parser.parse_args()
     
     # 투자 금액 저장
@@ -238,16 +240,27 @@ def main():
 
     # [수정] 5. Learner에 obs_dims_list 전달
     learner = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
-    buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, DEVICE)
-
-    total_steps = 0
     
-    print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
-    # [수정] Obs 차원 4개 출력
-    print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험), A3={obs_dim_3} (감성) | 글로벌 상태 차원: {state_dim} ---")
+    # 모델 로드 옵션 처리
+    if args.load_model:
+        print(f"\n--- 학습된 모델 로드 중: {args.load_model} ---")
+        learner.load_model(args.load_model)
+        if args.skip_training:
+            print("--- 학습 건너뛰기 (백테스트만 수행) ---")
+        else:
+            print("--- 추가 학습 진행 ---")
     
-    # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
-    for i_episode in range(NUM_EPISODES):
+    # 학습 수행 (skip_training이 False일 때만)
+    if not args.skip_training:
+        buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, DEVICE)
+        total_steps = 0
+        
+        print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
+        # [수정] Obs 차원 4개 출력
+        print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험), A3={obs_dim_3} (감성) | 글로벌 상태 차원: {state_dim} ---")
+        
+        # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
+        for i_episode in range(NUM_EPISODES):
         obs_dict, info = train_env.reset(initial_portfolio=None) 
         global_state = info["global_state"]
         episode_team_reward = 0.0
@@ -277,13 +290,15 @@ def main():
             if total_steps % TARGET_UPDATE_FREQ == 0:
                 learner.update_target_networks()
 
-        if (i_episode + 1) % 1 == 0:
-            print(f"Episode {i_episode+1}/{NUM_EPISODES} | Epsilon: {epsilon:.3f} | Team Reward: {episode_team_reward:.2f}")
+            if (i_episode + 1) % 1 == 0:
+                print(f"Episode {i_episode+1}/{NUM_EPISODES} | Epsilon: {epsilon:.3f} | Team Reward: {episode_team_reward:.2f}")
 
-    print("--- 학습 완료 ---")
-    
-    # 학습된 모델 저장
-    learner.save_model('qmix_model.pth')
+        print("--- 학습 완료 ---")
+        
+        # 학습된 모델 저장
+        learner.save_model('qmix_model.pth')
+    else:
+        print("\n--- 학습 건너뜀 (기존 모델 사용) ---")
 
     print("\n--- [1] 전체 테스트 기간 백테스트 수행 중 ---")
     print(f"--- 초기 투자 금액: {CAPITAL:,.0f}원 ---")
