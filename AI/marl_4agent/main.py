@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime
+import os
+import json
 
 from config import (
     DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
@@ -161,11 +163,57 @@ def print_ui_output(
 
 
 # --- 메인 실행 함수 ---
+def save_checkpoint(learner, episode, total_steps, checkpoint_path='checkpoint.pth'):
+    """학습 체크포인트 저장"""
+    checkpoint = {
+        'episode': episode,
+        'total_steps': total_steps,
+        'agents': [agent.q_net.state_dict() for agent in learner.agents],
+        'mixer': learner.mixer.state_dict(),
+        'optimizer': learner.optimizer.state_dict()
+    }
+    torch.save(checkpoint, checkpoint_path)
+    
+    # 메타 정보 저장 (JSON)
+    meta_path = checkpoint_path.replace('.pth', '_meta.json')
+    meta = {
+        'episode': episode,
+        'total_steps': total_steps,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    with open(meta_path, 'w') as f:
+        json.dump(meta, f, indent=2)
+    
+    print(f"체크포인트 저장: Episode {episode}, Steps {total_steps}")
+
+def load_checkpoint(learner, checkpoint_path='checkpoint.pth'):
+    """학습 체크포인트 로드"""
+    if not os.path.exists(checkpoint_path):
+        return 0, 0
+    
+    checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
+    
+    for i, agent in enumerate(learner.agents):
+        agent.q_net.load_state_dict(checkpoint['agents'][i])
+        agent.target_q_net.load_state_dict(checkpoint['agents'][i])
+    
+    learner.mixer.load_state_dict(checkpoint['mixer'])
+    learner.target_mixer.load_state_dict(checkpoint['mixer'])
+    learner.optimizer.load_state_dict(checkpoint['optimizer'])
+    
+    episode = checkpoint.get('episode', 0)
+    total_steps = checkpoint.get('total_steps', 0)
+    
+    print(f"체크포인트 로드: Episode {episode}, Steps {total_steps}")
+    return episode, total_steps
+
 def main():
     parser = argparse.ArgumentParser(description="QMIX Stock Trading AI")
     parser.add_argument('--capital', type=float, default=10000000, help="투자 금액 (원) (예: 10000000 = 1000만원)")
     parser.add_argument('--load-model', type=str, default=None, help="학습된 모델 파일 경로 (예: qmix_model.pth)")
     parser.add_argument('--skip-training', action='store_true', help="학습 건너뛰고 백테스트만 수행")
+    parser.add_argument('--resume', action='store_true', help="중단된 학습 재개")
+    parser.add_argument('--checkpoint-interval', type=int, default=10, help="체크포인트 저장 간격 (에피소드)")
     args = parser.parse_args()
     
     # 투자 금액 저장
@@ -241,8 +289,17 @@ def main():
     # [수정] 5. Learner에 obs_dims_list 전달
     learner = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
     
+    # 시작 에피소드 및 스텝 초기화
+    start_episode = 0
+    total_steps = 0
+    
     # 모델 로드 옵션 처리
-    if args.load_model:
+    if args.resume:
+        print("\n--- 중단된 학습 재개 ---")
+        start_episode, total_steps = load_checkpoint(learner, 'checkpoint.pth')
+        if start_episode == 0:
+            print("체크포인트를 찾을 수 없습니다. 처음부터 시작합니다.")
+    elif args.load_model:
         print(f"\n--- 학습된 모델 로드 중: {args.load_model} ---")
         learner.load_model(args.load_model)
         if args.skip_training:
@@ -253,14 +310,15 @@ def main():
     # 학습 수행 (skip_training이 False일 때만)
     if not args.skip_training:
         buffer = ReplayBuffer(BUFFER_SIZE, BATCH_SIZE, DEVICE)
-        total_steps = 0
         
         print(f"\n--- QMIX {NUM_EPISODES} 에피소드 학습 시작 (총 지표: {n_features}개) ---")
+        if start_episode > 0:
+            print(f"--- Episode {start_episode}부터 재개 (총 스텝: {total_steps}) ---")
         # [수정] Obs 차원 4개 출력
         print(f"--- Obs 차원: A0={obs_dim_0} (단기), A1={obs_dim_1} (장기), A2={obs_dim_2} (위험), A3={obs_dim_3} (감성) | 글로벌 상태 차원: {state_dim} ---")
         
         # (학습 루프는 N_AGENTS=3으로 일반화되어 있으므로 수정 불필요)
-        for i_episode in range(NUM_EPISODES):
+        for i_episode in range(start_episode, NUM_EPISODES):
             obs_dict, info = train_env.reset(initial_portfolio=None) 
             global_state = info["global_state"]
             episode_team_reward = 0.0
@@ -292,11 +350,16 @@ def main():
 
             if (i_episode + 1) % 1 == 0:
                 print(f"Episode {i_episode+1}/{NUM_EPISODES} | Epsilon: {epsilon:.3f} | Team Reward: {episode_team_reward:.2f}")
+            
+            # 체크포인트 저장
+            if (i_episode + 1) % args.checkpoint_interval == 0:
+                save_checkpoint(learner, i_episode + 1, total_steps, 'checkpoint.pth')
 
         print("--- 학습 완료 ---")
         
-        # 학습된 모델 저장
+        # 최종 모델 저장
         learner.save_model('qmix_model.pth')
+        print("최종 모델 저장 완료: qmix_model.pth")
     else:
         print("\n--- 학습 건너뜀 (기존 모델 사용) ---")
 

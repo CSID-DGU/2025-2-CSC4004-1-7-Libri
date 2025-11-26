@@ -383,15 +383,3 @@ NUM_EPISODES = 1000  # 더 긴 학습 (성능 향상 가능)
 ```bash
 python main.py --capital 100000000  # 1억원
 ```
-
----
-
-## 📝 라이선스
-
-MIT License
-
----
-
-## 🤝 기여
-
-이슈 및 PR 환영합니다!
