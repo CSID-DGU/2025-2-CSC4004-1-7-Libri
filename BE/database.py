@@ -58,6 +58,8 @@ class Portfolio(Base):
     portfolio_id = Column(String(50), unique=True, index=True)
     initial_capital = Column(Float)
     current_capital = Column(Float)
+    shares_held = Column(Integer, default=0)
+    average_entry_price = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -195,12 +195,16 @@ async def set_portfolio_capital(
     if portfolio:
         portfolio.initial_capital = request.initial_capital
         portfolio.current_capital = request.initial_capital
+        portfolio.shares_held = 0
+        portfolio.average_entry_price = 0.0
         portfolio.updated_at = datetime.utcnow()
     else:
         portfolio = Portfolio(
             portfolio_id=request.portfolio_id,
             initial_capital=request.initial_capital,
-            current_capital=request.initial_capital
+            current_capital=request.initial_capital,
+            shares_held=0,
+            average_entry_price=0.0
         )
         db.add(portfolio)
     
@@ -211,6 +215,8 @@ async def set_portfolio_capital(
         portfolio_id=portfolio.portfolio_id,
         initial_capital=portfolio.initial_capital,
         current_capital=portfolio.current_capital,
+        shares_held=portfolio.shares_held,
+        average_entry_price=portfolio.average_entry_price,
         created_at=portfolio.created_at,
         updated_at=portfolio.updated_at
     )
@@ -231,6 +237,8 @@ async def get_portfolio(
         portfolio_id=portfolio.portfolio_id,
         initial_capital=portfolio.initial_capital,
         current_capital=portfolio.current_capital,
+        shares_held=portfolio.shares_held,
+        average_entry_price=portfolio.average_entry_price,
         created_at=portfolio.created_at,
         updated_at=portfolio.updated_at
     )

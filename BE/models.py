@@ -22,6 +22,8 @@ class PortfolioCapitalResponse(BaseModel):
     portfolio_id: str
     initial_capital: float
     current_capital: float
+    shares_held: int
+    average_entry_price: float
     created_at: datetime
     updated_at: datetime
 
