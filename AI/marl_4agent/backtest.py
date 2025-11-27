@@ -119,7 +119,7 @@ def plot_backtest_results(portfolio_values, test_prices, initial_capital):
 def plot_daily_returns(daily_returns, dates):
     """일별 수익률을 시각화하는 함수"""
     # 한글 폰트 설정
-    plt.rcParams['font.family'] = 'Malgun Gothic'
+    plt.rcParams['font.family'] = 'NanumGothic'
     plt.rcParams['axes.unicode_minus'] = False
     
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
