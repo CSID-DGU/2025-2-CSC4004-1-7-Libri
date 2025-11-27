@@ -17,7 +17,7 @@ from qmix_model import QMIX_Learner
 def plot_backtest_results(portfolio_values, test_prices, initial_capital):
     """백테스트 결과를 시각화하는 함수 (KOSPI 지수 비교 포함)"""
     # 한글 폰트 설정
-    plt.rcParams['font.family'] = 'Malgun Gothic'
+    plt.rcParams['font.family'] = 'NanumGothic'
     plt.rcParams['axes.unicode_minus'] = False
     
     dates = test_prices.index[:len(portfolio_values)]
