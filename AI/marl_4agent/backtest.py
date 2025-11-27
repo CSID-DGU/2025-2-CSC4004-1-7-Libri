@@ -113,7 +113,60 @@ def plot_backtest_results(portfolio_values, test_prices, initial_capital):
     plt.savefig('backtest_result.png', dpi=300, bbox_inches='tight', facecolor='white')
     plt.close()
     
-    return sharpe, sortino, mdd, qmix_return, buyhold_return, kospi_return
+    return sharpe, sortino, mdd, qmix_return, buyhold_return, kospi_return, qmix_returns, dates[1:]
+
+# --- 일별 수익률 시각화 함수 ---
+def plot_daily_returns(daily_returns, dates):
+    """일별 수익률을 시각화하는 함수"""
+    # 한글 폰트 설정
+    plt.rcParams['font.family'] = 'Malgun Gothic'
+    plt.rcParams['axes.unicode_minus'] = False
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+    
+    # 1. 일별 수익률 바 차트
+    colors = ['#d62728' if x < 0 else '#2ca02c' for x in daily_returns]
+    ax1.bar(dates, daily_returns * 100, color=colors, alpha=0.7, width=0.8)
+    ax1.axhline(y=0, color='black', linestyle='-', linewidth=0.8)
+    ax1.set_title('일별 수익률 (%)', fontsize=13, pad=15)
+    ax1.set_xlabel('날짜', fontsize=11)
+    ax1.set_ylabel('수익률 (%)', fontsize=11)
+    ax1.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, axis='y')
+    ax1.set_axisbelow(True)
+    
+    # X축 포맷
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    ax1.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    plt.setp(ax1.xaxis.get_majorticklabels(), rotation=0, ha='center')
+    
+    # 통계 정보 추가
+    mean_return = daily_returns.mean() * 100
+    std_return = daily_returns.std() * 100
+    positive_days = (daily_returns > 0).sum()
+    negative_days = (daily_returns < 0).sum()
+    win_rate = (positive_days / len(daily_returns)) * 100
+    
+    textstr = f'평균: {mean_return:.2f}%\n표준편차: {std_return:.2f}%\n승률: {win_rate:.1f}%'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    ax1.text(0.02, 0.98, textstr, transform=ax1.transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+    
+    # 2. 수익률 분포 히스토그램
+    ax2.hist(daily_returns * 100, bins=30, color='#1f77b4', alpha=0.7, edgecolor='black')
+    ax2.axvline(x=0, color='red', linestyle='--', linewidth=1.5, label='0%')
+    ax2.axvline(x=mean_return, color='green', linestyle='--', linewidth=1.5, label=f'평균: {mean_return:.2f}%')
+    ax2.set_title('수익률 분포', fontsize=13, pad=15)
+    ax2.set_xlabel('수익률 (%)', fontsize=11)
+    ax2.set_ylabel('빈도', fontsize=11)
+    ax2.legend(loc='upper right', fontsize=9)
+    ax2.grid(True, alpha=0.3, linestyle='-', linewidth=0.5, axis='y')
+    ax2.set_axisbelow(True)
+    
+    plt.tight_layout()
+    plt.savefig('daily_returns.png', dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    return mean_return, std_return, win_rate
 
 # --- 4개 에이전트의 신호 변환 ---
 def convert_joint_action_to_signal(joint_action, action_map):
@@ -289,11 +342,15 @@ def main():
     test_days_actual = len(all_team_rewards)
     if test_days_actual > 0:
         try:
-            # 그래프 생성
-            sharpe, sortino, mdd, qmix_return, buyhold_return, kospi_return = plot_backtest_results(
+            # 포트폴리오 가치 그래프 생성
+            sharpe, sortino, mdd, qmix_return, buyhold_return, kospi_return, daily_returns, return_dates = plot_backtest_results(
                 portfolio_values, test_prices, CAPITAL
             )
             print("    ✅ 그래프 저장: backtest_result.png")
+            
+            # 일별 수익률 그래프 생성
+            mean_return, std_return, daily_win_rate = plot_daily_returns(daily_returns, return_dates)
+            print("    ✅ 그래프 저장: daily_returns.png")
             
             # 성능 비교 테이블
             print(f"\n--- Strategy Comparison ---")
@@ -309,14 +366,19 @@ def main():
             print(f"    - Sortino Ratio: {sortino:.3f}")
             print(f"    - Max Drawdown: {mdd:.2f}%")
             
+            # 일별 수익률 통계
+            print(f"\n    Daily Returns Statistics:")
+            print(f"    - 평균 일별 수익률: {mean_return:.2f}%")
+            print(f"    - 수익률 표준편차: {std_return:.2f}%")
+            print(f"    - 일별 승률: {daily_win_rate:.2f}%")
+            
             # 추가 통계
             all_raw_pnls_series = pd.Series(all_raw_pnls)
             win_days = (all_raw_pnls_series > 0).sum()
-            win_rate = (win_days / test_days_actual) * 100.0
             
             print(f"\n    Trading Statistics:")
             print(f"    - 백테스트 기간: {test_days_actual} 일")
-            print(f"    - 승률 (일별): {win_rate:.2f}% ({win_days}/{test_days_actual}일)")
+            print(f"    - 수익 발생일: {win_days}일 / 손실 발생일: {test_days_actual - win_days}일")
             print(f"    - 보유 주식: {final_shares} 주")
             print(f"    - 보유 현금: {final_cash:,.0f} 원")
             
