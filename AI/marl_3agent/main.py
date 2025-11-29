@@ -370,6 +370,30 @@ def main():
         if dones_dict['__all__']:
             break
 
+    # 최근 7일간의 행동과 수익 출력 코드
+    print("\n--- [1-1] 최근 7일간 상세 기록 ---")
+    recent_days = 7
+    total_days = len(all_team_rewards)
+    
+    # 기록이 7일보다 적으면 전체 출력
+    start_idx = max(0, total_days - recent_days)
+    
+    # 행동 매핑 (0:매수, 1:보유, 2:매도) -> 보기 편하게 텍스트로 변환
+    action_map = {0: "매수", 1: "보유", 2: "매도"}
+
+    for i in range(start_idx, total_days):
+        # 날짜 계산 (테스트 시작일로부터 i일 후)
+        date = test_prices.index[WINDOW_SIZE + i].strftime("%Y-%m-%d")
+        
+        # 해당 일의 행동 (에이전트별)
+        actions = all_actions_log[i]
+        actions_str = f"A0:{action_map[actions[0]]} A1:{action_map[actions[1]]} A2:{action_map[actions[2]]}"
+        
+        # 해당 일의 수익 (리워드)
+        reward = all_team_rewards[i]
+        
+        print(f"[{date}] 행동: {actions_str:<20} | 수익: {reward:.4f}")
+
     print("\n--- [2] 백테스트 성능 지표 ---")
     test_days = len(all_team_rewards)
     if test_days > 0:
@@ -571,6 +595,55 @@ def main():
             print("    ✅ 그래프 저장: backtest_result.png")
             plt.close()
             
+            # ---------------------------------------------------------
+            # [추가] 3-2. 일별 수익금(Daily PnL) 시각화
+            # ---------------------------------------------------------
+            daily_profits = np.diff(ai_values)
+
+            plot_dates = test_dates[1:]
+            
+            if len(plot_dates) == len(daily_profits):
+                fig2, ax2 = plt.subplots(figsize=(14, 6))
+                
+                # 한국 스타일: 이익(>0)은 빨간색, 손실(<0)은 파란색
+                colors = ['red' if p > 0 else 'blue' for p in daily_profits]
+                
+                ax2.bar(plot_dates, daily_profits, color=colors, alpha=0.7, width=0.8)
+                
+                ax2.set_title('일별 수익금 추이 (Daily Profit/Loss)', fontsize=15, pad=15)
+                ax2.set_ylabel('일별 손익 (원)', fontsize=12)
+                ax2.set_xlabel('날짜', fontsize=12)
+                
+                # 0원 기준선 추가
+                ax2.axhline(0, color='black', linewidth=0.8, linestyle='-')
+                
+                # 그리드 설정
+                ax2.grid(True, alpha=0.3, linestyle='--', axis='y')
+                
+                # X축 날짜 포맷
+                if use_dates:
+                    ax2.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                    ax2.xaxis.set_major_locator(mdates.MonthLocator(interval=1)) # 1개월 단위 표시
+                    plt.setp(ax2.xaxis.get_majorticklabels(), rotation=45, ha='right')
+                
+                # Y축 천 단위 콤마 포맷
+                ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x):,}'))
+                
+                # 최대/최소 수익금 텍스트 표시 (선택사항)
+                max_profit = np.max(daily_profits)
+                min_profit = np.min(daily_profits)
+                ax2.text(plot_dates[np.argmax(daily_profits)], max_profit, f'{int(max_profit):,}', 
+                         ha='center', va='bottom', fontsize=8, color='red')
+                ax2.text(plot_dates[np.argmin(daily_profits)], min_profit, f'{int(min_profit):,}', 
+                         ha='center', va='top', fontsize=8, color='blue')
+
+                plt.tight_layout()
+                plt.savefig('daily_pnl_result.png', dpi=300, bbox_inches='tight', facecolor='white')
+                print("    ✅ 그래프 저장: daily_pnl_result.png")
+                plt.close()
+            else:
+                print("    ⚠️  데이터 길이 불일치로 일별 수익금 그래프를 건너뜁니다.")
+
             # 성능 비교
             print(f"\n--- [3-1] Strategy Comparison ---")
             print(f"    {'Strategy':<20} {'Final Value':>18} {'Return':>10} {'vs KOSPI':>10}")
