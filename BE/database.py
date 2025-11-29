@@ -3,6 +3,8 @@
 from datetime import datetime
 from typing import Generator
 
+# BE/database.py 일부 (상단 import 쪽에 Boolean, ForeignKey, relationship 추가)
+
 from sqlalchemy import (
     Column,
     Integer,
@@ -12,8 +14,10 @@ from sqlalchemy import (
     Text,
     Index,
     create_engine,
+    Boolean,        # ← 추가
+    ForeignKey,     # ← 추가
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.orm import declarative_base, sessionmaker, Session, relationship  # ← relationship 추가
 
 from config import DATABASE_URL
 
@@ -34,6 +38,25 @@ SessionLocal = sessionmaker(
 )
 
 Base = declarative_base()
+
+# --------------------------------------------------------
+# 0) 사용자 테이블 (User) – 구글 로그인 / 온보딩용
+# --------------------------------------------------------
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    google_id = Column(String(128), unique=True, nullable=True)
+    email = Column(String(255), unique=True, nullable=False)
+    name = Column(String(100), nullable=True)
+
+    onboarding_completed = Column(Boolean, default=False)
+    investment_style = Column(String(20), nullable=True)  # 'stable' / 'aggressive'
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    portfolios = relationship("Portfolio", back_populates="user")
 
 
 # ---------------------------------------------------------------------
@@ -123,9 +146,10 @@ Index(
 )
 
 
-# ---------------------------------------------------------------------
-# 3) 포트폴리오 테이블 (Portfolio)
-# ---------------------------------------------------------------------
+# --------------------------------------------------------
+# (기존) Portfolio 클래스에 user_id / holdings 관계 추가
+# --------------------------------------------------------
+
 class Portfolio(Base):
     __tablename__ = "portfolios"
 
@@ -134,11 +158,44 @@ class Portfolio(Base):
     # FE가 관리하는 포트폴리오 식별자 (예: "user_1_default")
     portfolio_id = Column(String(50), unique=True, index=True)
 
+    # 🔥 여기 추가
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user = relationship("User", back_populates="portfolios")
+
     initial_capital = Column(Float, nullable=False)
     current_capital = Column(Float, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+    # 🔥 holdings 관계 추가
+    holdings = relationship(
+        "PortfolioHolding",
+        back_populates="portfolio",
+        cascade="all, delete-orphan",
+    )
+
+# --------------------------------------------------------
+# 3) 포트폴리오 내 종목 보유 테이블 (PortfolioHolding) – 온보딩/종목추가용
+# --------------------------------------------------------
+class PortfolioHolding(Base):
+    __tablename__ = "portfolio_holdings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id"), nullable=False)
+
+    symbol = Column(String(20), nullable=False)  # "005930"
+    shares = Column(Float, nullable=False)
+    average_price = Column(Float, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    portfolio = relationship("Portfolio", back_populates="holdings")
+
+    __table_args__ = (
+        Index("ix_holdings_portfolio_symbol", "portfolio_id", "symbol"),
+    )
 
 
 # ---------------------------------------------------------------------
