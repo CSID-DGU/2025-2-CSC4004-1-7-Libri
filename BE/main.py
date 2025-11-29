@@ -11,7 +11,7 @@ from models import (
     MarketDataInput, ModelPredictionResponse, PortfolioCapitalRequest,
     PortfolioCapitalResponse, InvestmentHistoryQuery, InvestmentRecordResponse,
     PerformanceMetrics, IndicatorHistoryQuery, HealthCheckResponse, ModelStatusResponse,
-    ModelInfo, ModelListResponse
+    ModelInfo, ModelListResponse, PortfolioSetupRequest
 )
 from gpt_service import interpret_model_output
 from model_loader import model_loader
@@ -173,6 +173,52 @@ async def set_portfolio_capital(
             current_capital=request.initial_capital,
             shares_held=0,
             average_entry_price=0.0
+        )
+        db.add(portfolio)
+    
+    db.commit()
+    db.refresh(portfolio)
+    
+    return PortfolioCapitalResponse(
+        portfolio_id=portfolio.portfolio_id,
+        initial_capital=portfolio.initial_capital,
+        current_capital=portfolio.current_capital,
+        shares_held=portfolio.shares_held,
+        average_entry_price=portfolio.average_entry_price,
+        created_at=portfolio.created_at,
+        updated_at=portfolio.updated_at
+    )
+
+@app.post("/user/setup", response_model=PortfolioCapitalResponse)
+async def setup_user_portfolio(
+    request: PortfolioSetupRequest,
+    db: Session = Depends(get_db),
+    authenticated: bool = Depends(verify_api_key)
+):
+    """
+    사용자 초기 설정 (투자 성향 및 초기 자산)
+    - 온보딩 완료 시 호출
+    - 포트폴리오 생성 또는 업데이트
+    """
+    portfolio = db.query(Portfolio).filter(Portfolio.portfolio_id == request.portfolio_id).first()
+    
+    if portfolio:
+        # 기존 포트폴리오 업데이트
+        portfolio.initial_capital = request.initial_capital
+        portfolio.current_capital = request.initial_capital # 초기화 시 현재 자본도 초기 자본으로 설정
+        portfolio.shares_held = request.shares_held
+        portfolio.average_entry_price = request.average_entry_price
+        portfolio.investment_style = request.investment_style
+        portfolio.updated_at = datetime.utcnow()
+    else:
+        # 새 포트폴리오 생성
+        portfolio = Portfolio(
+            portfolio_id=request.portfolio_id,
+            initial_capital=request.initial_capital,
+            current_capital=request.initial_capital,
+            shares_held=request.shares_held,
+            average_entry_price=request.average_entry_price,
+            investment_style=request.investment_style
         )
         db.add(portfolio)
     
