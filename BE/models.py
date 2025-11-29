@@ -12,6 +12,8 @@ class ModelPredictionResponse(BaseModel):
     confidence_score: float
     technical_indicators: Dict[str, float]
     gpt_explanation: Optional[str] = None
+    xai_explanation: Optional[str] = None
+    xai_feature_importance: Optional[List[Dict[str, float]]] = None
     timestamp: datetime
 
 class PortfolioCapitalRequest(BaseModel):

@@ -101,9 +101,12 @@ async def predict_marl(
     db: Session = Depends(get_db),
     authenticated: bool = Depends(verify_api_key)
 ):
-    """MARL 4-agent 모델 예측"""
+    """MARL 4-agent 모델 예측 (XAI 포함)"""
     try:
-        signal, confidence, indicators = model_loader.predict_marl(data.features)
+        signal, vote_sum, indicators, xai_explanation, xai_importance = model_loader.predict_marl(data.features)
+        
+        # vote_sum을 confidence_score로 변환 (-4~4 -> 0.0~1.0)
+        confidence = (abs(vote_sum) / 4.0) * 0.5 + 0.5
         
         # GPT 해석
         gpt_explanation = await interpret_model_output(signal, indicators)
@@ -133,6 +136,8 @@ async def predict_marl(
             confidence_score=confidence,
             technical_indicators=indicators,
             gpt_explanation=gpt_explanation,
+            xai_explanation=xai_explanation,
+            xai_feature_importance=xai_importance,
             timestamp=datetime.utcnow()
         )
     

@@ -2,36 +2,37 @@ import sys
 import os
 import torch
 import numpy as np
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 
 class ModelLoader:
     def __init__(self):
-        self.marl_model = None
+        self.marl_predictor = None
         self.model_2 = None
         self.model_3 = None
         
     def load_marl_model(self):
         """MARL 4-agent 모델 로드"""
         try:
-            sys.path.append(os.path.abspath("../marl_4agent"))
-            from qmix_model import QMIX_Learner
-            from config import DEVICE, N_AGENTS
+            # AI/marl_4agent 경로 추가
+            marl_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../AI/marl_4agent"))
+            if marl_path not in sys.path:
+                sys.path.insert(0, marl_path)
             
-            # 모델 차원 설정 (실제 학습된 모델에 맞게 조정 필요)
-            obs_dims_list = [40, 40, 40, 40]  # 각 에이전트의 observation 차원
-            action_dim = 3
-            state_dim = 160
+            from predictor import get_predictor
             
-            self.marl_model = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
+            # 모델 및 scaler 경로
+            model_path = os.path.join(marl_path, "qmix_model.pth")
+            scaler_path = os.path.join(marl_path, "scaler.pkl")
             
-            # 학습된 가중치 로드 (있는 경우)
-            model_path = "../marl_4agent/saved_model.pth"
-            if os.path.exists(model_path):
-                self.marl_model.load_state_dict(torch.load(model_path))
+            # Predictor 로드
+            self.marl_predictor = get_predictor(model_path, scaler_path)
             
+            print(f"MARL 모델 로드 성공: {model_path}")
             return True
+            
         except Exception as e:
             print(f"MARL 모델 로드 실패: {str(e)}")
+            print(f"경고: 더미 모드로 동작합니다.")
             return False
     
     def load_model_2(self):
@@ -54,19 +55,32 @@ class ModelLoader:
             print(f"Model 3 로드 실패: {str(e)}")
             return False
     
-    def predict_marl(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """MARL 모델 예측"""
-        if self.marl_model is None:
-            raise ValueError("MARL 모델이 로드되지 않았습니다.")
+    def predict_marl(self, features: Dict[str, float]) -> Tuple[str, int, Dict[str, float], str, List[Dict[str, float]]]:
+        """MARL 4-agent 모델 예측 (XAI 포함)"""
+        if self.marl_predictor is None:
+            # 모델이 로드되지 않은 경우 더미 응답
+            print("경고: MARL 모델이 로드되지 않아 더미 응답을 반환합니다.")
+            signal = "보유"
+            vote_sum = 0
+            xai_explanation = "모델이 로드되지 않았습니다."
+            xai_importance = []
+            return signal, vote_sum, features, xai_explanation, xai_importance
         
-        # 특징 벡터를 모델 입력 형식으로 변환
-        # TODO: 실제 데이터 전처리 로직 구현
-        
-        # 임시 예측 결과
-        signal = "매수"
-        confidence = 0.75
-        
-        return signal, confidence, features
+        try:
+            # 실제 모델 예측 (XAI 포함)
+            signal, vote_sum, features, xai_explanation, xai_importance = self.marl_predictor.predict(features)
+            return signal, vote_sum, features, xai_explanation, xai_importance
+            
+        except Exception as e:
+            print(f"MARL 예측 중 오류: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            # 오류 발생 시 더미 응답
+            signal = "보유"
+            vote_sum = 0
+            xai_explanation = f"예측 중 오류 발생: {str(e)}"
+            xai_importance = []
+            return signal, vote_sum, features, xai_explanation, xai_importance
     
     def predict_model_2(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
         """Model 2 예측"""
@@ -93,7 +107,7 @@ class ModelLoader:
     def get_model_status(self) -> Dict[str, str]:
         """모델 상태 확인"""
         return {
-            "marl_4agent": "available" if self.marl_model is not None else "unavailable",
+            "marl_4agent": "available" if self.marl_predictor is not None else "unavailable",
             "model_2": "available" if self.model_2 is not None else "unavailable",
             "model_3": "available" if self.model_3 is not None else "unavailable"
         }
