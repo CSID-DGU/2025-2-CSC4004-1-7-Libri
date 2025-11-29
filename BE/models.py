@@ -70,9 +70,8 @@ class HealthCheckResponse(BaseModel):
     timestamp: datetime
 
 class ModelStatusResponse(BaseModel):
-    marl_4agent: str
-    model_2: str
-    model_3: str
+    marl_3agent: str
+    a2c: str
 
 class ModelInfo(BaseModel):
     id: str
