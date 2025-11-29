@@ -24,11 +24,7 @@ interface StockQuantityInputProps {
     onSubmit: (quantity: string) => void;
 }
 
-export default function StockQuantityInput({
-    stockName,
-    onBack,
-    onSubmit,
-}: StockQuantityInputProps) {
+export default function StockQuantityInput({ onBack, onSubmit }: StockQuantityInputProps) {
     const [quantity, setQuantity] = useState("");
 
     const hasValue = quantity.trim().length > 0;
