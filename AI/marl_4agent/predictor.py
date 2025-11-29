@@ -7,7 +7,7 @@ import torch
 import numpy as np
 import pandas as pd
 import pickle
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from config import DEVICE, N_AGENTS, WINDOW_SIZE
@@ -63,18 +63,20 @@ class MARLPredictor:
             print(f"모델 로드 실패: {e}")
             return False
     
-    def predict(self, features: Dict[str, float]) -> Tuple[str, int, Dict[str, float]]:
+    def predict(self, features: Dict[str, float]) -> Tuple[str, int, Dict[str, float], str, List[Dict[str, float]]]:
         """
-        단일 시점 예측
+        단일 시점 예측 (XAI 포함)
         
         Args:
             features: 기술 지표 딕셔너리
             
         Returns:
-            (signal, vote_sum, features)
+            (signal, vote_sum, features, xai_explanation, xai_importance)
             - signal: "매수", "매도", "보유"
             - vote_sum: 투표 합계 (-4 ~ 4)
             - features: 입력 features 그대로 반환
+            - xai_explanation: XAI 설명 텍스트
+            - xai_importance: 특징 중요도 리스트
         """
         if self.learner is None:
             raise ValueError("모델이 로드되지 않았습니다. load()를 먼저 호출하세요.")
@@ -112,6 +114,24 @@ class MARLPredictor:
         # 예측 (epsilon=0.0으로 greedy 선택)
         actions_dict = self.learner.select_actions(obs_dict, epsilon=0.0)
         
+        # XAI 분석 수행
+        agent_analyses = []
+        agent_cols_list = [agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols]
+        
+        for i in range(N_AGENTS):
+            obs_np = obs_dict[f'agent_{i}'].cpu().numpy().flatten()
+            agent_feature_names = agent_cols_list[i]
+            n_features_agent = len(agent_feature_names)
+            
+            # get_prediction_with_reason 호출
+            action_idx, q_values, importance = self.learner.agents[i].get_prediction_with_reason(
+                obs_np,
+                agent_feature_names,
+                WINDOW_SIZE,
+                n_features_agent
+            )
+            agent_analyses.append((action_idx, q_values, importance))
+        
         # 투표 집계
         votes = []
         action_map = {0: "Long", 1: "Hold", 2: "Short"}
@@ -144,11 +164,50 @@ class MARLPredictor:
         else:
             signal = "보유"
         
+        # XAI 설명 생성
+        xai_explanation, xai_importance = self._generate_xai_explanation(signal, agent_analyses)
+        
         # 디버그 정보 추가
         features['_agent_actions'] = ', '.join(agent_actions)
         features['_vote_sum'] = vote_sum
         
-        return signal, vote_sum, features
+        return signal, vote_sum, features, xai_explanation, xai_importance
+    
+    def _generate_xai_explanation(self, signal: str, agent_analyses: List) -> Tuple[str, List[Dict[str, float]]]:
+        """XAI 설명 생성"""
+        # 모든 에이전트의 중요도 합산
+        all_importances = {}
+        for _, _, importance_list in agent_analyses:
+            for feature, imp in importance_list:
+                all_importances[feature] = all_importances.get(feature, 0.0) + imp
+        
+        # 중요도 순으로 정렬
+        sorted_features = sorted(all_importances.items(), key=lambda item: item[1], reverse=True)
+        
+        # 설명 텍스트 생성
+        explanation = f"AI가 '{signal}'을 결정한 주된 이유는 다음과 같습니다.\n\n"
+        
+        if not sorted_features:
+            explanation += "데이터 분석 중입니다."
+        else:
+            top_feature_1 = sorted_features[0][0]
+            explanation += f"  1. '{top_feature_1}' 지표의 최근 움직임을 가장 중요하게 고려했습니다.\n"
+            
+            if len(sorted_features) > 1:
+                top_feature_2 = sorted_features[1][0]
+                explanation += f"  2. '{top_feature_2}' 지표가 2순위로 결정에 영향을 미쳤습니다.\n"
+            
+            if len(sorted_features) > 2:
+                top_feature_3 = sorted_features[2][0]
+                explanation += f"  3. 마지막으로 '{top_feature_3}' 지표를 참고했습니다.\n"
+        
+        # 중요도 리스트 (상위 10개)
+        importance_list = [
+            {"feature": feature, "importance": float(importance)}
+            for feature, importance in sorted_features[:10]
+        ]
+        
+        return explanation, importance_list
 
 
 # 전역 인스턴스 
