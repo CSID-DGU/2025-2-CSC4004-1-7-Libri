@@ -4,7 +4,7 @@
     --font-size: 16px;
     --font-family-base: "Pretendard", sans-serif;
 
-    /* Paint style */
+    /* 색상 스타일 */
     --component-main: #1fa9a4;
     --component-red: #f3646f;
     --component-blue: #5c87f2;
@@ -151,7 +151,7 @@ html {
     font-size: var(--font-size);
 }
 
-/* Typography utility classes */
+/* 텍스트 스타일 */
 .display-1 {
     font-size: 28px;
     font-family: var(--font-family-base);
