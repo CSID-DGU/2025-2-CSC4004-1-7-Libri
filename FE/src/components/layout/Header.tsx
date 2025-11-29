@@ -3,6 +3,12 @@ import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
 
 type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
 
+interface IconButtonProps {
+    Icon: IconComponent;
+    onClick?: () => void;
+    ariaLabel?: string;
+}
+
 interface HeaderProps {
     title: string;
     onBack?: () => void;
@@ -17,17 +23,10 @@ interface HeaderProps {
     className?: string;
 }
 
-function IconButton({
-    Icon,
-    onClick,
-    ariaLabel,
-    className,
-}: {
-    Icon: IconComponent;
-    onClick?: () => void;
-    ariaLabel?: string;
-    className?: string;
-}) {
+const ICON_CLASS = "w-6 h-6";
+const ICON_STYLE = { color: "var(--achromatic-600)" };
+
+function IconButton({ Icon, onClick, ariaLabel }: IconButtonProps) {
     return (
         <button
             type="button"
@@ -35,7 +34,7 @@ function IconButton({
             aria-label={ariaLabel}
             className="box-border flex items-center justify-center rounded-full p-1 transition-colors hover:bg-[#f2f4f8]"
         >
-            <Icon className={className ?? "w-6 h-6 achromatic-600"} />
+            <Icon className={ICON_CLASS} style={ICON_STYLE} />
         </button>
     );
 }
@@ -80,13 +79,11 @@ export function Header({
     };
 
     return (
-        <header className={`bg-white h-[58px] w-full ${className}`} data-name="상단 헤더">
-            <div className="mx-auto flex size-full max-w-[375px] items-center justify-between px-4">
+        <header className={`bg-white h-[58px] w-full px-[16px] ${className}`} data-name="상단 헤더">
+            <div className="mx-auto flex size-full max-w-[375px] items-center justify-between">
                 <div className="flex w-[68px] justify-start">{renderLeft()}</div>
                 <div className="flex flex-1 items-center justify-center px-1">
-                    <p className="onboarding-top text-center text-[#3e3f40] leading-[1.55]">
-                        {title}
-                    </p>
+                    <p className="title-2 text-center text-[#3e3f40]">{title}</p>
                 </div>
                 <div className="flex w-[68px] justify-end">{renderRight()}</div>
             </div>
