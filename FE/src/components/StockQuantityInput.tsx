@@ -92,8 +92,11 @@ export default function StockQuantityInput({
                                         }}
                                     >
                                         <CloseCircleIcon
-                                            className="w-5 h-5"
-                                            style={{ color: "var(--achromatic-500)" }}
+                                            style={{
+                                                color: "var(--achromatic-500)",
+                                                width: "20px",
+                                                height: "20px",
+                                            }}
                                         />
                                     </button>
                                 )}
