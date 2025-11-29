@@ -58,8 +58,13 @@ class Portfolio(Base):
     portfolio_id = Column(String(50), unique=True, index=True)
     initial_capital = Column(Float)
     current_capital = Column(Float)
+
     shares_held = Column(Integer, default=0)
     average_entry_price = Column(Float, default=0.0)
+    
+    # [추가] 투자 성향 (공격형/중간형/안정형)
+    investment_style = Column(String, default="neutral")
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
