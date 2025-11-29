@@ -178,7 +178,7 @@ class MARLStockEnv(gym.Env):
         old_portfolio_value = self.cash + (self.shares * old_price)
         
         if final_action == 0:  # Buy
-            # 신호 강도에 비례해서 매수 (총 자산의 최대 10%)
+            # 신호 강도에 비례해서 매수 (총 자산의 최대 15%)
             # 2표=5%, 3표=7.5%, 4표=10%
             buy_ratio = signal_strength * 0.1  # 총 자산 대비
             buy_amount = old_portfolio_value * buy_ratio
@@ -189,7 +189,7 @@ class MARLStockEnv(gym.Env):
                 self.cash -= cost
                 
         elif final_action == 2:  # Sell
-            # 신호 강도에 비례해서 매도 (보유 주식의 최대 30%)
+            # 신호 강도에 비례해서 매도 (보유 주식의 최대 15%)
             # 2표=15%, 3표=22.5%, 4표=30%
             if self.shares > 0:
                 sell_ratio = signal_strength * 0.3

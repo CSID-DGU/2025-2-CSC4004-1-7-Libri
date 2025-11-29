@@ -1,16 +1,18 @@
 """
-최근 일주일 실전 투자 시뮬레이션
+최근 일주일 실전 투자 시뮬레이션 (간소화 버전)
 - yfinance에서 최근 7일 데이터 (저가, 고가 포함) 가져오기
+- 저장된 scaler로 정규화
 - 학습된 QMIX 모델로 매일 매수/매도 신호 생성
 - 매수 시 저가에 매수, 매도 시 고가에 매도
-- 일주일 수익률 계산 및 출력
 """
 
 import torch
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import pickle
 from datetime import datetime, timedelta
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 from config import DEVICE, N_AGENTS, WINDOW_SIZE, TICKER
 from data_processor import DataProcessor
@@ -18,35 +20,110 @@ from environment import MARLStockEnv
 from qmix_model import QMIX_Learner
 
 
-def fetch_recent_week_data(ticker=TICKER, days=7):
-    """최근 N일 데이터 가져오기 (저가, 고가 포함)"""
+def load_scaler(scaler_path='scaler.pkl'):
+    """저장된 scaler 로드"""
+    try:
+        with open(scaler_path, 'rb') as f:
+            scaler_data = pickle.load(f)
+        print(f"Scaler 로드 완료: {scaler_path}")
+        return scaler_data
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"\n오류: {scaler_path} 파일을 찾을 수 없습니다.\n"
+            "먼저 'python main.py'로 모델을 학습하여 scaler를 생성하세요."
+        )
+
+
+def normalize_recent_data(df_recent, scaler_data):
+    """저장된 scaler로 최근 데이터 정규화"""
+    df_norm = df_recent.copy()
+    scalers_dict = scaler_data['scalers']
+    
+    for col in df_norm.columns:
+        if col not in scalers_dict:
+            continue
+            
+        scaler_info = scalers_dict[col]
+        
+        # 1. 가격 기반 정규화
+        if isinstance(scaler_info, dict) and scaler_info.get('type') == 'price':
+            first_val = scaler_info['first_val']
+            df_norm[col] = (df_norm[col] / first_val) - 1.0
+            
+        # 2. MinMaxScaler
+        elif isinstance(scaler_info, MinMaxScaler):
+            df_norm[col] = scaler_info.transform(df_norm[[col]])
+            
+        # 3. StandardScaler
+        elif isinstance(scaler_info, StandardScaler):
+            df_norm[col] = scaler_info.transform(df_norm[[col]])
+            
+        # 4. 비율 정규화
+        elif isinstance(scaler_info, dict) and scaler_info.get('type') == 'ratio_100':
+            df_norm[col] = df_norm[col] / 100.0
+            
+        # 5. Bollinger_B clipping
+        elif isinstance(scaler_info, dict) and scaler_info.get('type') == 'clip_m1_2':
+            df_norm[col] = np.clip(df_norm[col], -1, 2)
+            
+        # 6. Volume_Ratio clipping
+        elif isinstance(scaler_info, dict) and scaler_info.get('type') == 'clip_0_5':
+            df_norm[col] = np.clip(df_norm[col], 0, 5)
+    
+    df_norm = df_norm.fillna(0)
+    return df_norm
+
+
+def fetch_and_process_recent_data(days=7, scaler_data=None):
+    """최근 데이터 다운로드 및 처리"""
+    
+    # 1. 최근 데이터 다운로드 (고가/저가 포함)
     end_date = datetime.now()
-    # 주말 포함해서 여유있게 가져오기
-    start_date = end_date - timedelta(days=days*2)
+    start_date = end_date - timedelta(days=days + WINDOW_SIZE + 90)  # 여유있게
     
-    print(f"\n최근 {days}일 데이터 다운로드 중... ({ticker})")
-    df = yf.download(ticker, start=start_date.strftime('%Y-%m-%d'), 
-                     end=end_date.strftime('%Y-%m-%d'), progress=False)
+    print(f"\n최근 데이터 다운로드 중... ({start_date.date()} ~ {end_date.date()})")
     
-    if df.empty:
-        raise RuntimeError(f"데이터를 가져올 수 없습니다: {ticker}")
+    processor = DataProcessor(
+        ticker=TICKER,
+        start=start_date.strftime('%Y-%m-%d'),
+        end=end_date.strftime('%Y-%m-%d')
+    )
     
-    # 최근 N일만 선택
-    df = df.tail(days)
+    # 2. 데이터 다운로드 및 feature 계산
+    df = processor.fetch_data()
+    df_features = processor.calculate_features(df)
     
-    print(f"가져온 데이터: {len(df)}일 ({df.index[0].date()} ~ {df.index[-1].date()})")
-    return df
+    # 3. 가격 정보 분리 (고가/저가 포함)
+    prices = df_features['Close'].copy()
+    high_prices = df_features['High'].copy() if 'High' in df_features else prices
+    low_prices = df_features['Low'].copy() if 'Low' in df_features else prices
+    
+    # 4. Feature만 추출
+    feature_names = scaler_data['feature_names']
+    df_features = df_features[feature_names].fillna(method='ffill').fillna(0)
+    
+    # 5. 정규화
+    df_features_norm = normalize_recent_data(df_features, scaler_data)
+    
+    # 6. 최근 N일 추출
+    recent_dates = df_features_norm.index[-days:]
+    
+    if len(recent_dates) < days:
+        print(f"경고: 요청한 {days}일 중 {len(recent_dates)}일만 사용 가능합니다.")
+    
+    # 가격 정보 DataFrame 생성
+    price_info = pd.DataFrame({
+        'Close': prices,
+        'High': high_prices,
+        'Low': low_prices
+    })
+    
+    return df_features_norm, prices, price_info, recent_dates, scaler_data
 
 
-def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, days=7):
-    """
-    최근 일주일 실전 투자 시뮬레이션
-    
-    Args:
-        model_path: 학습된 모델 경로
-        initial_capital: 초기 투자 금액
-        days: 시뮬레이션 일수 (기본 7일)
-    """
+def simulate_live_week(model_path='qmix_model.pth', scaler_path='scaler.pkl', 
+                       initial_capital=10_000_000, days=7):
+    """최근 일주일 실전 투자 시뮬레이션"""
     
     print("\n" + "="*60)
     print("  최근 일주일 AI 투자 시뮬레이션")
@@ -54,88 +131,30 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
     print(f"초기 투자 금액: {initial_capital:,.0f}원")
     print(f"시뮬레이션 기간: 최근 {days}일")
     
-    # 1. 최근 일주일 실제 데이터 가져오기
-    recent_df = fetch_recent_week_data(TICKER, days)
+    # 1. Scaler 로드
+    scaler_data = load_scaler(scaler_path)
+    agent_0_cols = scaler_data['agent_0_cols']
+    agent_1_cols = scaler_data['agent_1_cols']
+    agent_2_cols = scaler_data['agent_2_cols']
+    agent_3_cols = scaler_data['agent_3_cols']
     
-    # 2. 학습 데이터로 scaler를 fit하기 위해 과거 데이터 가져오기
-    print("\n학습용 과거 데이터 로드 중...")
-    processor_train = DataProcessor()
-    (train_features_unnorm, train_prices, feature_names,
-     agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols) = processor_train.process()
-    
-    # 3. 최근 일주일 데이터를 동일한 방식으로 새로 처리
-    print("\n최근 일주일 데이터를 새로 다운로드하고 처리 중...")
-    
-    # 최근 데이터의 시작일과 종료일 계산 (WINDOW_SIZE 고려)
-    end_date = recent_df.index[-1]
-    start_date = end_date - timedelta(days=days + WINDOW_SIZE + 30)  # 여유있게
-    
-    # 최근 데이터용 processor 생성 (새로 다운로드)
-    processor_recent = DataProcessor(
-        ticker=TICKER,
-        vix_ticker=processor_train.vix_ticker,
-        start=start_date.strftime('%Y-%m-%d'),
-        end=(end_date + timedelta(days=1)).strftime('%Y-%m-%d')
+    # 2. 최근 데이터 가져오기 및 처리
+    sim_features, sim_prices, price_info, sim_dates, _ = fetch_and_process_recent_data(
+        days=days, 
+        scaler_data=scaler_data
     )
     
-    # 최근 데이터 새로 다운로드 및 처리
-    recent_full_df = processor_recent.fetch_data()
-    recent_features_unnorm = processor_recent.calculate_features(recent_full_df)
-    recent_prices = recent_features_unnorm['Close'].copy()
-    recent_features_unnorm = recent_features_unnorm[feature_names]
+    print(f"\n처리 완료: {len(sim_features)}일 ({sim_features.index[0].date()} ~ {sim_features.index[-1].date()})")
+    print(f"거래 대상: {len(sim_dates)}일")
     
-    # 4. 정규화 (학습 데이터로 fit한 scaler 사용)
-    print("\n데이터 정규화 중...")
-    
-    # 학습 데이터의 일부를 train으로 사용 (scaler fit용)
-    total_days = len(train_features_unnorm)
-    test_days = 252
-    split_idx = total_days - test_days
-    
-    train_for_scaler = train_features_unnorm.iloc[:split_idx]
-    
-    # Scaler fit & transform
-    _, recent_features_norm = processor_train.normalize_data(
-        train_for_scaler, 
-        recent_features_unnorm
-    )
-    
-    # 5. 최근 일주일만 추출
-    available_dates = [d for d in recent_df.index if d in recent_features_norm.index]
-    
-    if len(available_dates) == 0:
-        print("\n오류: 최근 데이터를 처리할 수 없습니다.")
-        print(f"요청한 날짜 범위: {recent_df.index[0]} ~ {recent_df.index[-1]}")
-        print(f"처리된 데이터 범위: {recent_features_norm.index[0]} ~ {recent_features_norm.index[-1]}")
-        return
-    
-    print(f"\n사용 가능한 날짜: {len(available_dates)}일")
-    
-    # WINDOW_SIZE를 고려한 데이터 추출
-    # 환경이 제대로 작동하려면: WINDOW_SIZE + 시뮬레이션 일수 + 1 이상 필요
-    last_date = available_dates[-1]
-    last_idx = recent_features_norm.index.get_loc(last_date)
-    
-    # 필요한 최소 데이터 길이 계산
-    required_length = WINDOW_SIZE + len(available_dates) + 1
-    start_idx = max(0, last_idx - required_length + 1)
-    
-    sim_features_norm = recent_features_norm.iloc[start_idx:last_idx+1]
-    sim_prices = recent_prices.iloc[start_idx:last_idx+1]
-    
-    # 데이터 길이 검증
-    if len(sim_features_norm) < WINDOW_SIZE + 1:
-        print(f"\n오류: 데이터가 부족합니다. 필요: {WINDOW_SIZE + 1}일, 실제: {len(sim_features_norm)}일")
-        return
-    
-    # 6. 환경 생성
+    # 3. 환경 생성
     sim_env = MARLStockEnv(
-        sim_features_norm, sim_prices,
+        sim_features, sim_prices,
         agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols,
         n_agents=N_AGENTS, window_size=WINDOW_SIZE
     )
     
-    # 7. 모델 로드
+    # 4. 모델 로드
     obs_dims_list = [
         sim_env.observation_dim_0,
         sim_env.observation_dim_1,
@@ -149,16 +168,15 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
     
     try:
         learner.load_model(model_path)
-        print(f"\n모델 로드 완료: {model_path}")
+        print(f"모델 로드 완료: {model_path}")
     except Exception as e:
-        print(f"\n경고: 모델을 로드할 수 없습니다 ({e}). 랜덤 모델을 사용합니다.")
+        print(f"경고: 모델을 로드할 수 없습니다 ({e}). 랜덤 모델을 사용합니다.")
     
-    # 8. 시뮬레이션 실행
+    # 5. 시뮬레이션 시작
     print("\n" + "-"*60)
     print("  일별 거래 시뮬레이션")
     print("-"*60)
     
-    # 초기 포트폴리오 설정
     portfolio = {
         'capital': initial_capital,
         'shares': 0,
@@ -167,32 +185,29 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
     
     obs_dict, info = sim_env.reset(initial_portfolio=portfolio)
     
-    # 시뮬레이션 시작 인덱스 계산
-    # 환경의 max_steps = len(data) - WINDOW_SIZE - 1
-    # available_dates 시작 지점까지 진행해야 함
-    total_data_length = len(sim_features_norm)
-    sim_start_step = total_data_length - len(available_dates) - WINDOW_SIZE
+    # 거래 시작일까지 환경 진행
+    first_date = sim_dates[0]
+    first_idx = sim_features.index.get_loc(first_date)
+    start_idx = max(0, first_idx - WINDOW_SIZE)
+    steps_to_skip = first_idx - start_idx
     
-    # 해당 스텝까지 환경을 진행
-    if sim_start_step > 0:
-        for _ in range(sim_start_step):
-            # Hold 액션으로 진행
+    if steps_to_skip > 0:
+        for _ in range(steps_to_skip):
             actions_dict = {f'agent_{i}': 1 for i in range(N_AGENTS)}
             obs_dict, _, dones_dict, _, info = sim_env.step(actions_dict)
             if dones_dict['__all__']:
-                print("\n경고: 시뮬레이션 시작 전에 환경이 종료되었습니다.")
+                print("경고: 환경이 예상보다 일찍 종료되었습니다.")
                 return
     
-    # 실제 시뮬레이션 기록
+    # 6. 실제 거래 시뮬레이션
     daily_results = []
-    action_map = {0: "매수", 1: "보유", 2: "매도"}
     
-    for day_idx, date in enumerate(available_dates):
+    for day_idx, date in enumerate(sim_dates):
         # 현재 가격 정보
-        current_data = recent_df.loc[date]
-        close_price = current_data['Close']
-        high_price = current_data['High']
-        low_price = current_data['Low']
+        current_prices = price_info.loc[date]
+        close_price = current_prices['Close']
+        high_price = current_prices['High']
+        low_price = current_prices['Low']
         
         # AI 신호 생성
         actions_dict = learner.select_actions(obs_dict, epsilon=0.0)
@@ -221,15 +236,14 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
             final_signal = "보유"
             signal_strength = 0.0
         
-        # 거래 실행 (저가 매수, 고가 매도)
+        # 거래 실행
         old_portfolio_value = portfolio['cash'] + (portfolio['shares'] * close_price)
         trade_price = 0.0
         trade_shares = 0
         
         if final_signal == "매수":
-            # 저가에 매수
             trade_price = low_price
-            buy_ratio = signal_strength * 0.1  # 총 자산 대비
+            buy_ratio = signal_strength * 0.1
             buy_amount = old_portfolio_value * buy_ratio
             
             if buy_amount > trade_price and buy_amount <= portfolio['cash']:
@@ -239,7 +253,6 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
                 portfolio['cash'] -= cost
                 
         elif final_signal == "매도":
-            # 고가에 매도
             trade_price = high_price
             if portfolio['shares'] > 0:
                 sell_ratio = signal_strength * 0.3
@@ -250,7 +263,7 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
                     portfolio['shares'] -= trade_shares
                     portfolio['cash'] += revenue
         
-        # 포트폴리오 가치 계산 (종가 기준)
+        # 포트폴리오 가치 계산
         new_portfolio_value = portfolio['cash'] + (portfolio['shares'] * close_price)
         daily_pnl = new_portfolio_value - old_portfolio_value
         daily_return = (daily_pnl / old_portfolio_value) * 100 if old_portfolio_value > 0 else 0.0
@@ -276,7 +289,7 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
         if dones_dict['__all__']:
             break
     
-    # 9. 결과 출력
+    # 7. 결과 출력
     print(f"\n{'날짜':<12} {'신호':<6} {'투표':<6} {'거래가':<10} {'거래량':<8} {'종가':<10} {'보유주식':<8} {'현금':<12} {'포트폴리오':<14} {'일수익':<12} {'수익률':<8}")
     print("-"*130)
     
@@ -293,7 +306,7 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
               f"{result['daily_pnl']:>+12,.0f} "
               f"{result['daily_return']:>+7.2f}%")
     
-    # 10. 최종 결과 요약
+    # 8. 최종 결과 요약
     print("\n" + "="*60)
     print("  최종 결과 요약")
     print("="*60)
@@ -318,9 +331,9 @@ def simulate_live_week(model_path='qmix_model.pth', initial_capital=10_000_000, 
     print(f"최종 보유 현금   : {portfolio['cash']:>14,.0f}원")
     print("="*60)
     
-    # 11. 벤치마크 비교 (Buy & Hold)
-    first_close = recent_df.iloc[0]['Close']
-    last_close = recent_df.iloc[-1]['Close']
+    # 9. 벤치마크 비교
+    first_close = price_info.loc[sim_dates[0], 'Close']
+    last_close = price_info.loc[sim_dates[-1], 'Close']
     benchmark_return = ((last_close - first_close) / first_close) * 100
     
     print(f"\n[벤치마크] Buy & Hold 수익률: {benchmark_return:+.2f}%")
@@ -335,6 +348,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="최근 일주일 실전 투자 시뮬레이션")
     parser.add_argument('--model', type=str, default='qmix_model.pth', 
                        help="학습된 모델 경로")
+    parser.add_argument('--scaler', type=str, default='scaler.pkl',
+                       help="저장된 scaler 경로")
     parser.add_argument('--capital', type=float, default=10_000_000, 
                        help="초기 투자 금액 (원)")
     parser.add_argument('--days', type=int, default=7, 
@@ -344,6 +359,7 @@ if __name__ == "__main__":
     
     simulate_live_week(
         model_path=args.model,
+        scaler_path=args.scaler,
         initial_capital=args.capital,
         days=args.days
     )

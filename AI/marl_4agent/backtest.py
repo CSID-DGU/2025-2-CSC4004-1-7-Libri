@@ -16,7 +16,7 @@ from qmix_model import QMIX_Learner
 
 
 # 랜덤 시드 고정 함수
-def set_seed(seed=42):
+def set_seed(seed=77):
     """재현 가능한 결과를 위한 랜덤 시드 고정"""
     random.seed(seed)
     np.random.seed(seed)

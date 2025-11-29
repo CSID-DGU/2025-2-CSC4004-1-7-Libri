@@ -1,5 +1,6 @@
 import argparse
 import torch
+import pickle
 from datetime import datetime
 import os
 import json
@@ -58,6 +59,24 @@ def load_checkpoint(learner, checkpoint_path='checkpoint.pth'):
     print(f"체크포인트 로드: Episode {episode}, Steps {total_steps}")
     return episode, total_steps
 
+def save_scaler(processor, feature_names, agent_0_cols, agent_1_cols, agent_2_cols, agent_3_cols, 
+                scaler_path='scaler.pkl'):
+    """Scaler 및 메타데이터 저장"""
+    scaler_data = {
+        'scalers': processor.scalers,
+        'feature_names': feature_names,
+        'agent_0_cols': agent_0_cols,
+        'agent_1_cols': agent_1_cols,
+        'agent_2_cols': agent_2_cols,
+        'agent_3_cols': agent_3_cols,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    with open(scaler_path, 'wb') as f:
+        pickle.dump(scaler_data, f)
+    
+    print(f"Scaler 저장 완료: {scaler_path}")
+
 def main():
     parser = argparse.ArgumentParser(description="QMIX Stock Trading AI - Training Only")
     parser.add_argument('--load-model', type=str, default=None, help="학습된 모델 파일 경로 (예: qmix_model.pth)")
@@ -89,6 +108,10 @@ def main():
 
     # 정규화 (학습 데이터만)
     train_features, _ = processor.normalize_data(train_features_unnorm, train_features_unnorm)
+    
+    # Scaler 저장 (최초 1회)
+    save_scaler(processor, feature_names, agent_0_cols, agent_1_cols, 
+                agent_2_cols, agent_3_cols, 'scaler.pkl')
 
     # Env 생성자에 피처 목록 전달 (agent_3_cols 추가)
     train_env = MARLStockEnv(
@@ -176,7 +199,7 @@ def main():
     learner.save_model('qmix_model.pth')
     print("최종 모델 저장 완료: qmix_model.pth")
     print("\n백테스트를 수행하려면 'python backtest.py --model qmix_model.pth' 명령을 실행하세요.")
-
+    print("최근 일주일 시뮬레이션을 수행하려면 'python simulate_live_week.py' 명령을 실행하세요.")
 
 
 if __name__ == "__main__":
