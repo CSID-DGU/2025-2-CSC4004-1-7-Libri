@@ -1,19 +1,14 @@
 import { useState } from "react";
-import svgPaths from "../imports/svg-a0v3zh7d1z";
+import {
+    caretLeft as caretLeftIcon,
+    lightning as lightningIcon,
+    shield as shieldIcon,
+} from "@/assets/icons";
 
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 24 24"
-            >
-                <g id="caret-left">
-                    <path d={svgPaths.p21f93bf0} fill="var(--fill-0, #686B6D)" id="Vector" />
-                </g>
-            </svg>
+            <img src={caretLeftIcon} alt="Caret Left" className="block text-[#686B6D]" />
         </div>
     );
 }
@@ -116,22 +111,10 @@ function Component4() {
 }
 
 function Lightning({ isSelected }: { isSelected: boolean }) {
+    const color = isSelected ? "#1FA9A4" : "#A1A4A8";
     return (
         <div className="relative shrink-0 size-[24px]" data-name="lightning">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 24 24"
-            >
-                <g id="lightning">
-                    <path
-                        d={svgPaths.p38460e00}
-                        fill={isSelected ? "var(--fill-0, #1FA9A4)" : "var(--fill-0, #A1A4A8)"}
-                        id="Vector"
-                    />
-                </g>
-            </svg>
+            <img src={lightningIcon} alt="Lightning" className="block" />
         </div>
     );
 }
@@ -172,22 +155,10 @@ function AggressiveOption({ isSelected, onClick }: { isSelected: boolean; onClic
 }
 
 function Shield({ isSelected }: { isSelected: boolean }) {
+    const opacity = isSelected ? "opacity-100" : "opacity-60";
     return (
         <div className="relative shrink-0 size-[24px]" data-name="shield">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 24 24"
-            >
-                <g id="shield">
-                    <path
-                        d={svgPaths.p339dd100}
-                        fill={isSelected ? "var(--fill-0, #1FA9A4)" : "var(--fill-0, #A1A4A8)"}
-                        id="Vector"
-                    />
-                </g>
-            </svg>
+            <img src={shieldIcon} alt="Shield" className="block" />
         </div>
     );
 }

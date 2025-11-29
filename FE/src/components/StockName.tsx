@@ -1,19 +1,10 @@
 import { useState } from "react";
-import svgPaths from "../imports/svg-49s72u8vh4";
+import { caretLeft } from "@/assets/icons";
 
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 24 24"
-            >
-                <g id="caret-left">
-                    <path d={svgPaths.p21f93bf0} fill="var(--fill-0, #686B6D)" id="Vector" />
-                </g>
-            </svg>
+            <img src={caretLeft} alt="Caret Left" className="block size-full text-[#686B6D]" />
         </div>
     );
 }

@@ -1,5 +1,10 @@
 import { useState } from "react";
-import svgPaths from "../imports/svg-lgulmg48dh";
+import {
+    settings as SettingsIcon,
+    ai as AiSparkIcon,
+    plus as PlusIcon,
+    logo as LogoIcon,
+} from "@/assets/icons";
 import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import imgCiLogoMark021 from "@/assets/4ce6de04287ac1cd44af2322f588b24a7b2ae7c0.png";
 import StockDetail from "./StockDetail";
@@ -7,17 +12,7 @@ import StockDetail from "./StockDetail";
 function Logo() {
     return (
         <div className="relative shrink-0 size-[28px]" data-name="Logo">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 28 28"
-            >
-                <g id="Logo">
-                    <rect fill="var(--fill-0, #1FA9A4)" height="28" rx="8.75" width="28" />
-                    <path d={svgPaths.p34c52f00} fill="var(--fill-0, #F2F4F8)" id="Exclude" />
-                </g>
-            </svg>
+            <img src={LogoIcon} alt="Logo" className="block size-full" />
         </div>
     );
 }
@@ -25,22 +20,7 @@ function Logo() {
 function Settings() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="settings">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 24 24"
-            >
-                <g id="settings">
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p5a876f0}
-                        fill="var(--fill-0, #A1A4A8)"
-                        fillRule="evenodd"
-                        id="Vector"
-                    />
-                </g>
-            </svg>
+            <img src={SettingsIcon} alt="Settings" className="block size-full text-[#686B6D]" />
         </div>
     );
 }
@@ -84,22 +64,7 @@ function Frame14() {
 function Ai() {
     return (
         <div className="relative shrink-0 size-[18px]" data-name="AI">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 18 18"
-            >
-                <g id="AI">
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p1036f280}
-                        fill="var(--fill-0, #1FA9A4)"
-                        fillRule="evenodd"
-                        id="Vector"
-                    />
-                </g>
-            </svg>
+            <img src={AiSparkIcon} alt="AI" className="block size-full text-[#1fa9a4]" />
         </div>
     );
 }
@@ -538,16 +503,7 @@ function Frame26({
 function Plus() {
     return (
         <div className="relative shrink-0 size-[20px]" data-name="plus">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 20 20"
-            >
-                <g id="plus">
-                    <path d={svgPaths.p35341400} fill="var(--fill-0, white)" id="Vector" />
-                </g>
-            </svg>
+            <img src={PlusIcon} alt="Plus" className="block size-full" />
         </div>
     );
 }
@@ -665,231 +621,6 @@ function Frame22({
     );
 }
 
-function Bar() {
-    return (
-        <div className="absolute bottom-[8px] h-[5px] left-[120px] right-[121px]" data-name="Bar">
-            <div className="absolute bg-[#151b26] inset-0 rounded-[10px]" data-name="Base" />
-        </div>
-    );
-}
-
-function IOsHomeBar() {
-    return (
-        <div
-            className="absolute bottom-0 h-[34px] left-0 overflow-clip right-0"
-            data-name="iOS_Home Bar"
-        >
-            <Bar />
-        </div>
-    );
-}
-
-function Notch() {
-    return <div className="absolute h-[30px] left-0 right-0 top-0" data-name="Notch" />;
-}
-
-function NetworkSignalLight() {
-    return (
-        <div className="h-[14px] relative shrink-0 w-[20px]" data-name="Network Signal / Light">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 20 14"
-            >
-                <g id="Network Signal /Â Light">
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p1f162900}
-                        fill="var(--fill-0, #D1D1D6)"
-                        fillRule="evenodd"
-                        id="Path"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p1d5dbe40}
-                        fill="var(--fill-0, #D1D1D6)"
-                        fillRule="evenodd"
-                        id="Path_2"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p18019e00}
-                        fill="var(--fill-0, #D1D1D6)"
-                        fillRule="evenodd"
-                        id="Path_3"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p342c3400}
-                        fill="var(--fill-0, #3C3C43)"
-                        fillOpacity="0.18"
-                        fillRule="evenodd"
-                        id="Empty Bar"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p1f162900}
-                        fill="var(--fill-0, black)"
-                        fillRule="evenodd"
-                        id="Path_4"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p1d5dbe40}
-                        fill="var(--fill-0, black)"
-                        fillRule="evenodd"
-                        id="Path_5"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p18019e00}
-                        fill="var(--fill-0, black)"
-                        fillRule="evenodd"
-                        id="Path_6"
-                    />
-                </g>
-            </svg>
-        </div>
-    );
-}
-
-function WiFiSignalLight() {
-    return (
-        <div className="h-[14px] relative shrink-0 w-[16px]" data-name="WiFi Signal / Light">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 16 14"
-            >
-                <g id="WiFi Signal / Light">
-                    <path d={svgPaths.p3dc48e00} fill="var(--fill-0, black)" id="Path" />
-                    <path d={svgPaths.p3b3c95f0} fill="var(--fill-0, black)" id="Path_2" />
-                    <path d={svgPaths.p932c700} fill="var(--fill-0, black)" id="Path_3" />
-                </g>
-            </svg>
-        </div>
-    );
-}
-
-function BatteryLight() {
-    return (
-        <div className="h-[14px] relative shrink-0 w-[25px]" data-name="Battery / Light">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 25 14"
-            >
-                <g id="Battery / Light">
-                    <path
-                        d={svgPaths.p5709d00}
-                        fill="var(--fill-0, #3C3C43)"
-                        fillOpacity="0.6"
-                        id="Rectangle 23"
-                    />
-                    <path
-                        clipRule="evenodd"
-                        d={svgPaths.p2587880}
-                        fill="var(--fill-0, #3C3C43)"
-                        fillOpacity="0.6"
-                        fillRule="evenodd"
-                        id="Rectangle 21 (Stroke)"
-                    />
-                    <rect
-                        fill="var(--fill-0, black)"
-                        height="8"
-                        id="Rectangle 20"
-                        rx="1"
-                        width="19"
-                        x="2"
-                        y="3"
-                    />
-                </g>
-            </svg>
-        </div>
-    );
-}
-
-function StatusIcons() {
-    return (
-        <div
-            className="absolute content-stretch flex gap-[4px] items-center right-[14px] top-[16px]"
-            data-name="Status Icons"
-        >
-            <NetworkSignalLight />
-            <WiFiSignalLight />
-            <BatteryLight />
-        </div>
-    );
-}
-
-function Indicator() {
-    return (
-        <div className="absolute right-[71px] size-[6px] top-[8px]" data-name="Indicator">
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 6 6"
-            >
-                <g id="Indicator"></g>
-            </svg>
-        </div>
-    );
-}
-
-function Component5() {
-    return (
-        <div
-            className="absolute h-[15px] left-[calc(50%+0.5px)] top-1/2 translate-x-[-50%] translate-y-[-50%] w-[33px]"
-            data-name="9:41"
-        >
-            <svg
-                className="block size-full"
-                fill="none"
-                preserveAspectRatio="none"
-                viewBox="0 0 33 15"
-            >
-                <g id="9:41">
-                    <g id="9:41_2">
-                        <path d={svgPaths.p309cf100} fill="var(--fill-0, black)" />
-                        <path d={svgPaths.p1285b880} fill="var(--fill-0, black)" />
-                        <path d={svgPaths.pa9bea00} fill="var(--fill-0, black)" />
-                        <path d={svgPaths.p1d3f77f0} fill="var(--fill-0, black)" />
-                    </g>
-                </g>
-            </svg>
-        </div>
-    );
-}
-
-function TimeLight() {
-    return (
-        <div
-            className="absolute h-[21px] left-[21px] overflow-clip rounded-[20px] top-[12px] w-[54px]"
-            data-name="Time / Light"
-        >
-            <Component5 />
-        </div>
-    );
-}
-
-function IOsStatusBar() {
-    return (
-        <div
-            className="absolute bg-white h-[44px] left-0 overflow-clip right-0 top-0"
-            data-name="iOS_Status Bar"
-        >
-            <Notch />
-            <StatusIcons />
-            <Indicator />
-            <TimeLight />
-        </div>
-    );
-}
-
 interface Stock {
     name: string;
     quantity: number;
@@ -946,7 +677,6 @@ export default function Home({
 
     return (
         <div className="bg-white relative size-full min-h-screen" data-name="홈">
-            <IOsStatusBar />
             <Frame22
                 initialInvestment={initialInvestment}
                 profit={totalProfit}
@@ -955,7 +685,6 @@ export default function Home({
                 onAddStock={onAddStock}
                 onStockClick={handleStockClick}
             />
-            <IOsHomeBar />
         </div>
     );
 }
