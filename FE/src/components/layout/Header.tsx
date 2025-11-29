@@ -79,8 +79,12 @@ export function Header({
     };
 
     return (
-        <header className={`bg-white h-[58px] w-full px-[16px] ${className}`} data-name="상단 헤더">
-            <div className="mx-auto flex size-full max-w-[375px] items-center justify-between">
+        <header
+            className={`bg-white w-full ${className}`}
+            data-name="상단 헤더"
+            style={{ paddingInline: "16px", paddingBlock: "13px" }}
+        >
+            <div className="mx-auto flex max-w-[375px] items-center justify-between">
                 <div className="flex w-[68px] justify-start">{renderLeft()}</div>
                 <div className="flex flex-1 items-center justify-center px-1">
                     <p className="title-2 text-center text-[#3e3f40]">{title}</p>
