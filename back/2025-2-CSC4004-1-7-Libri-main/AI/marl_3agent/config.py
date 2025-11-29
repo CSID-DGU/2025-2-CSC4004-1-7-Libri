@@ -1,0 +1,30 @@
+import torch
+
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+GAMMA = 0.99
+LR = 1e-4
+
+BATCH_SIZE = 64
+BUFFER_SIZE = int(1e5)
+
+WINDOW_SIZE = 10
+N_AGENTS = 3
+
+TARGET_UPDATE_FREQ = 500
+TAU = 0.01
+MIXER_EMBED_DIM = 64
+
+TICKER = "005930.KS"
+VIX_TICKER = "^VIX"
+#학습기간 10년
+START_DATE = "2015-11-18"
+END_DATE = "2025-11-17"
+
+NUM_EPISODES = 300
+
+EPSILON_START = 1.0
+EPSILON_END = 0.1
+EPSILON_DECAY_STEPS = 150000 
+
+WARMUP_STEPS = 2000 
+REWARD_SCALE = 10.0
