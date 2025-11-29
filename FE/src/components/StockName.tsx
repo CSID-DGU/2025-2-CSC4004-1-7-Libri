@@ -1,5 +1,5 @@
 import { useState } from "react";
-import svgPaths from "../imports/svg-crvmew88jg";
+import svgPaths from "../imports/svg-49s72u8vh4";
 
 function CaretLeft() {
     return (
@@ -29,11 +29,15 @@ function Component() {
     );
 }
 
-function Frame() {
+function Frame({ onBack }: { onBack?: () => void }) {
     return (
-        <div className="content-stretch flex gap-[10px] items-center relative shrink-0 w-[68px]">
-            <Component />
-        </div>
+        <button
+            onClick={onBack}
+            className="content-stretch flex gap-[10px] items-center relative shrink-0 w-[68px]"
+            disabled={!onBack}
+        >
+            {onBack && <Component />}
+        </button>
     );
 }
 
@@ -57,22 +61,17 @@ function Component2() {
     return <div className="h-[32px] shrink-0 w-[68px]" data-name="상단 헤더 우측 버튼" />;
 }
 
-function Frame1({ onBack }: { onBack: () => void }) {
+function Frame1({ onBack }: { onBack?: () => void }) {
     return (
         <div className="absolute content-stretch flex items-center justify-center left-[16px] right-[16px] top-1/2 translate-y-[-50%]">
-            <button
-                onClick={onBack}
-                className="content-stretch flex gap-[10px] items-center relative shrink-0 w-[68px]"
-            >
-                <Component />
-            </button>
+            <Frame onBack={onBack} />
             <Component1 />
             <Component2 />
         </div>
     );
 }
 
-function Component3({ onBack }: { onBack: () => void }) {
+function Component3({ onBack }: { onBack?: () => void }) {
     return (
         <div className="bg-white h-[58px] relative shrink-0 w-full" data-name="상단 헤더">
             <Frame1 onBack={onBack} />
@@ -85,12 +84,12 @@ function Frame2() {
         <div className="content-stretch flex flex-col gap-[4px] items-start justify-center leading-[0] not-italic relative shrink-0 text-nowrap w-full">
             <div className="flex flex-col justify-center relative shrink-0 text-[#151b26] onboarding-big">
                 <p className="leading-[1.6] text-nowrap whitespace-pre">
-                    초기투자금을 입력해 주세요
+                    주식 종목을 입력해 주세요
                 </p>
             </div>
             <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center relative shrink-0 text-[#a1a4a8] text-[12px] tracking-[0.24px]">
                 <p className="leading-[1.5] text-nowrap whitespace-pre">
-                    AI가 맞춤형 분석을 제공하는 데에 필요한 정보예요.
+                    AI 주식 분석을 확인하고 싶은 종목을 추가해 주세요.
                 </p>
             </div>
         </div>
@@ -117,137 +116,55 @@ function Component4() {
     );
 }
 
-function Frame9({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div className="content-stretch flex gap-[6px] items-center relative shrink-0">
-            <input
-                type="number"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={investment}
-                onChange={(e) => setInvestment(e.target.value)}
-                placeholder="초기투자금"
-                className="w-full bg-transparent font-['Pretendard:SemiBold',sans-serif] text-[14px] tracking-[0.14px] outline-none placeholder:text-[#a1a4a8] text-[#151b26] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-        </div>
-    );
+interface OnboardingProps {
+    onSubmit: (stockName: string) => void;
+    onBack?: () => void;
 }
 
-function Frame10({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div className="content-stretch flex gap-[6px] items-center relative shrink-0">
-            <Frame9 investment={investment} setInvestment={setInvestment} />
-        </div>
-    );
-}
-
-function Component5({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div
-            className="basis-0 bg-[#f2f4f8] grow min-h-px min-w-px relative rounded-[8px] shrink-0"
-            data-name="영역 헤더 우측 버튼"
-        >
-            <div className="flex flex-row items-center size-full">
-                <div className="box-border content-stretch flex items-center p-[12px] relative w-full">
-                    <Frame10 investment={investment} setInvestment={setInvestment} />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame6({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div className="relative shrink-0 w-full">
-            <div className="flex flex-row items-center justify-center size-full">
-                <div className="box-border content-stretch flex gap-[10px] items-center justify-center px-[20px] py-0 relative w-full">
-                    <Component5 investment={investment} setInvestment={setInvestment} />
-                    <div className="flex flex-col justify-center leading-[0] not-italic relative shrink-0 text-[#151b26] ext-center text-nowrap onboarding-big">
-                        <p className="leading-[1.6] whitespace-pre">원</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame8({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div className="content-stretch flex flex-col gap-[20px] items-start relative shrink-0 w-full">
-            <Component4 />
-            <Frame6 investment={investment} setInvestment={setInvestment} />
-        </div>
-    );
-}
-
-function Frame5({
-    investment,
-    setInvestment,
-}: {
-    investment: string;
-    setInvestment: (value: string) => void;
-}) {
-    return (
-        <div className="box-border content-stretch flex flex-col gap-[24px] items-center justify-center px-0 py-[16px] relative shrink-0 w-full">
-            <Frame8 investment={investment} setInvestment={setInvestment} />
-        </div>
-    );
-}
-
-interface InitialInvestmentInputProps {
-    onBack: () => void;
-    onSubmit: (investment: string) => void;
-}
-
-export default function InitialInvestmentInput({ onBack, onSubmit }: InitialInvestmentInputProps) {
-    const [investment, setInvestment] = useState("");
+export default function Onboarding({ onSubmit, onBack }: OnboardingProps) {
+    const [stockInput, setStockInput] = useState("");
 
     const handleSubmit = () => {
-        onSubmit(investment);
+        if (stockInput.trim()) {
+            onSubmit(stockInput.trim());
+        }
     };
 
     return (
         <div className="bg-white relative size-full min-h-screen" data-name="온보딩">
             <div className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px]">
                 <Component3 onBack={onBack} />
-                <Frame5 investment={investment} setInvestment={setInvestment} />
+
+                <div className="box-border content-stretch flex flex-col gap-[24px] items-center justify-center px-0 py-[16px] relative shrink-0 w-full">
+                    <div className="content-stretch flex flex-col gap-[20px] items-start relative shrink-0 w-full">
+                        <Component4 />
+
+                        <div className="relative shrink-0 w-full">
+                            <div className="size-full">
+                                <div className="box-border content-stretch flex flex-col gap-[10px] items-start px-[20px] py-0 relative w-full">
+                                    <div className="relative rounded-[8px] shrink-0 w-full">
+                                        <input
+                                            type="text"
+                                            value={stockInput}
+                                            onChange={(e) => setStockInput(e.target.value)}
+                                            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                                            placeholder="주식 종목명"
+                                            className="box-border w-full bg-[#f2f4f8] rounded-[8px] p-[12px] font-['Pretendard:SemiBold',sans-serif] text-[14px] text-[#3e3f40] tracking-[0.14px] outline-none placeholder:text-[#a1a4a8]"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div className="absolute bottom-[50px] box-border content-stretch flex flex-col gap-[10px] items-start left-1/2 translate-x-[-50%] px-[20px] py-0 w-full max-w-[375px]">
                 <button
                     onClick={handleSubmit}
+                    disabled={!stockInput.trim()}
                     className={`${
-                        investment.trim() ? "bg-[#1FA9A4]" : "bg-[#d0d1d4]"
+                        stockInput.trim() ? "bg-[#1FA9A4]" : "bg-[#d0d1d4]"
                     } relative rounded-[8px] shrink-0 w-full transition-colors`}
                 >
                     <div className="flex flex-row items-center justify-center size-full">
