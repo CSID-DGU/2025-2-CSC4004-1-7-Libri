@@ -1,247 +1,279 @@
-import sys
+# BE/model_loader.py
+
 import os
-from typing import Dict, Tuple, Optional
+import sys
+import logging
+from typing import Dict, Tuple, Any, Optional
 
 import numpy as np
-import torch
 import yaml
 import joblib
 
-# 현재 파일 기준 경로 설정
-BASE_DIR = os.path.dirname(__file__)                     # .../main_11.29/BE
-A2C_DIR = os.path.join(BASE_DIR, "..", "AI", "a2c_11.29")  # .../main_11.29/AI/a2c_11.29
-
-# A2C 프로젝트를 파이썬 모듈 경로에 추가
-sys.path.append(os.path.abspath(A2C_DIR))
-
-from ac_model import A2CAgent
-from data_utils import FEATURES, download_data, add_indicators, build_state
+logger = logging.getLogger(__name__)
 
 
 class ModelLoader:
     """
-    세 가지 모델을 관리하는 로더.
+    백엔드에서 사용할 투자 모델 로더.
 
-    - marl_model : 4-agent MARL (향후 안정형 / 중간형)
-    - model_2    : 두 번째 모델 (TODO)
-    - model_3    : 공격형 A2C 모델
+    - 안정형(stable): marl_3agent 기반 (AI/marl_3agent/inference.py::predict_today)
+    - 공격형(aggressive): A2C 기반 (AI/a2c_11.29/ 내부 코드)
+
+    각 모델은 아래 공통 인터페이스를 따른다.
+      → (signal: str, confidence: float, indicators: Dict[str, float], feature_importance: Dict[str, float])
     """
+
     def __init__(self) -> None:
-        self.marl_model: Optional[object] = None
-        self.model_2: Optional[object] = None
+        # 안정형 모델 (marl_3agent)
+        self.marl3_predict_fn: Optional[Any] = None
+        self.marl3_base_dir: Optional[str] = None
 
-        # 공격형 A2C 관련 필드
-        self.model_3: Optional[A2CAgent] = None
+        # 공격형 모델 (A2C)
+        self.a2c_agent: Optional[Any] = None
         self.a2c_cfg: Optional[dict] = None
-        self.a2c_window_size: Optional[int] = None
-        self.a2c_scaler: Optional[object] = None
-        self.a2c_device: str = "cpu"
+        self.a2c_scaler: Optional[Any] = None
+        self.a2c_window_size: int = 0
+        self.a2c_base_dir: Optional[str] = None
+
+        # 상태 관리
+        self.status = {
+            "stable": "unavailable",     # marl_3agent
+            "aggressive": "unavailable", # A2C
+        }
 
     # ------------------------------------------------------------------
-    # 1) MARL 4-agent (기존 더미/임시)
+    # 공용 진입점
     # ------------------------------------------------------------------
-    def load_marl_model(self) -> bool:
-        """MARL 4-agent 모델 로드 (현재는 기존 코드 유지)"""
-        try:
-            sys.path.append(os.path.abspath(os.path.join(BASE_DIR, "..", "AI", "marl_4agent")))
-            from qmix_model import QMIX_Learner  # type: ignore
-            from config import DEVICE, N_AGENTS  # marl_4agent 쪽 config
-
-            obs_dims_list = [40, 40, 40, 40]  # TODO: 실제 값으로 수정
-            action_dim = 3
-            state_dim = 160
-
-            self.marl_model = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
-
-            model_path = os.path.join(BASE_DIR, "..", "AI", "marl_4agent", "saved_model.pth")
-            model_path = os.path.abspath(model_path)
-
-            if os.path.exists(model_path):
-                self.marl_model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-                print(f"[MARL] saved_model.pth 로드 완료: {model_path}")
-            else:
-                print(f"[MARL] 경고: {model_path} 를 찾을 수 없습니다. 초기화된 모델 사용")
-
-            return True
-        except Exception as e:
-            print(f"[MARL] 모델 로드 실패: {e}")
-            self.marl_model = None
-            return False
-
-    def load_model_2(self) -> bool:
-        """두 번째 RL/전략 모델 (TODO)"""
-        try:
-            # TODO: 실제 model_2 로드 로직 구현
-            self.model_2 = "Model 2 Placeholder"
-            print("[Model 2] Placeholder 로드 (실제 모델 연결 필요)")
-            return True
-        except Exception as e:
-            print(f"[Model 2] 로드 실패: {e}")
-            self.model_2 = None
-            return False
-
-    # ------------------------------------------------------------------
-    # 2) 공격형 A2C (Model 3) 로드 / 예측
-    # ------------------------------------------------------------------
-    def load_model_3(self, config_path: str = None) -> bool:
+    def load_models(self) -> None:
         """
-        공격형 A2C 모델 로드.
+        FastAPI startup 시 한 번 호출해서 두 모델을 미리 로딩한다.
+        """
+        logger.info("[ModelLoader] 모델 로딩 시작")
+        self._load_marl3_model()
+        self._load_a2c_model()
+        logger.info("[ModelLoader] 모델 로딩 완료: %s", self.status)
 
-        - AI/a2c_11.29/config.yaml 읽기
-        - reports/scaler.joblib 로드
-        - A2CAgent 생성 + a2c_samsung.pt 가중치 로드
+    def get_model_status(self) -> Dict[str, str]:
+        return self.status
+
+    # ------------------------------------------------------------------
+    # 1) 안정형 모델: marl_3agent
+    # ------------------------------------------------------------------
+    def _load_marl3_model(self) -> None:
+        """
+        AI/marl_3agent/inference.py 안에 있는 `predict_today()`를 불러온다.
+
+        현재 inference.predict_today() 시그니처:
+            -> Tuple[str, str, Dict[str, float]]
+               (final_signal, explanation, indicators_dict)
         """
         try:
-            if config_path is None:
-                config_path = os.path.join(A2C_DIR, "config.yaml")
-            config_path = os.path.abspath(config_path)
+            base_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "../AI/marl_3agent")
+            )
+            if base_dir not in sys.path:
+                sys.path.append(base_dir)
 
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"A2C 설정 파일을 찾을 수 없습니다: {config_path}")
+            from inference import predict_today  # type: ignore
 
-            with open(config_path, "r", encoding="utf-8") as f:
+            self.marl3_predict_fn = predict_today
+            self.marl3_base_dir = base_dir
+            self.status["stable"] = "available"
+            logger.info("[MARL3] inference.predict_today 연결 완료")
+
+        except Exception as e:
+            logger.exception("[MARL3] 모델 로드 실패: %s", e)
+            self.status["stable"] = "unavailable"
+
+    def predict_stable(
+        self, symbol: str = "005930"
+    ) -> Tuple[str, float, Dict[str, float], Dict[str, float]]:
+        """
+        안정형 모델(marl_3agent) 예측.
+
+        반환:
+            - signal: "BUY" / "SELL" / "HOLD"
+            - confidence: 0~1 사이 신뢰도 (간단히 0.7 고정 등으로 처리 가능)
+            - indicators: 현재 시점 기술지표 dict
+            - feature_importance: 지표 중요도 (GPT 설명용, 현재는 빈 dict)
+        """
+        if self.status.get("stable") != "available" or self.marl3_predict_fn is None:
+            raise RuntimeError("안정형(marl_3agent) 모델이 로드되지 않았습니다.")
+
+        # 실제 inference 함수에 symbol을 넘길지 여부는 네 구현에 맞춰 수정 가능
+        result = self.marl3_predict_fn()
+
+        # inference.predict_today() -> (final_signal, explanation, indicators_dict)
+        if isinstance(result, tuple) and len(result) == 3:
+            signal_raw, explanation, indicators = result
+        else:
+            logger.warning(
+                "[MARL3] 예측 결과 포맷이 예상과 다릅니다: %s", type(result)
+            )
+            signal_raw, explanation, indicators = "Hold", "", {}
+
+        # "Long"/"Short"/"Hold"/"매수"/"매도"/"보유" → "BUY"/"SELL"/"HOLD"
+        mapping = {
+            "Long": "BUY",
+            "Short": "SELL",
+            "Hold": "HOLD",
+            "매수": "BUY",
+            "매도": "SELL",
+            "보유": "HOLD",
+        }
+        signal = mapping.get(str(signal_raw), "HOLD")
+
+        # 신뢰도는 간단히 0.7 고정 (나중에 Q값 기반으로 바꿀 수 있음)
+        confidence = 0.7
+
+        # 타입 정리
+        clean_indicators: Dict[str, float] = {}
+        for k, v in (indicators or {}).items():
+            try:
+                clean_indicators[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+
+        # 현재 inference에서는 중요도를 따로 리턴하지 않으므로 빈 dict
+        clean_importance: Dict[str, float] = {}
+
+        return signal, confidence, clean_indicators, clean_importance
+
+    # ------------------------------------------------------------------
+    # 2) 공격형 모델: A2C
+    # ------------------------------------------------------------------
+    def _load_a2c_model(self) -> None:
+        try:
+            base_dir = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "../AI/a2c_11.29")
+            )
+            if base_dir not in sys.path:
+                sys.path.append(base_dir)
+
+            # 1) config.yaml 로드
+            cfg_path = os.path.join(base_dir, "config.yaml")
+            with open(cfg_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
 
             self.a2c_cfg = cfg
-            self.a2c_window_size = int(cfg["window_size"])
-            self.a2c_device = cfg.get("device", "cpu")
+            self.a2c_base_dir = base_dir
 
-            # 경로들(A2C 디렉토리 기준)
-            model_rel = cfg["model_path"]          # 예: "a2c_samsung.pt"
-            report_dir_rel = cfg["report_dir"]     # 예: "reports"
+            # 2) scaler 로드
+            scaler_path = os.path.join(
+                base_dir,
+                cfg.get("report_dir", "reports") + "/scaler.joblib",
+            )
+            if os.path.exists(scaler_path):
+                self.a2c_scaler = joblib.load(scaler_path)
+                logger.info("[A2C] scaler 로드 완료: %s", scaler_path)
+            else:
+                logger.warning("[A2C] scaler.joblib 이 존재하지 않습니다: %s", scaler_path)
 
-            model_path = os.path.join(A2C_DIR, model_rel)
-            scaler_path = os.path.join(A2C_DIR, report_dir_rel, "scaler.joblib")
+            # 3) A2CAgent 로드
+            from ac_model import A2CAgent   # AI/a2c_11.29/ac_model.py
+            from data_utils import FEATURES  # AI/a2c_11.29/data_utils.py
 
-            model_path = os.path.abspath(model_path)
-            scaler_path = os.path.abspath(scaler_path)
+            window_size = int(cfg.get("window_size", 5))
+            self.a2c_window_size = window_size
 
-            if not os.path.exists(scaler_path):
-                raise FileNotFoundError(f"A2C 스케일러 파일을 찾을 수 없습니다: {scaler_path}")
-            if not os.path.exists(model_path):
-                raise FileNotFoundError(f"A2C 모델 가중치 파일을 찾을 수 없습니다: {model_path}")
-
-            # 1) 스케일러 로드
-            self.a2c_scaler = joblib.load(scaler_path)
-            print(f"[A2C] scaler 로드 완료: {scaler_path}")
-
-            # 2) A2C 에이전트 생성 + 가중치 로드
-            state_dim = len(FEATURES) * self.a2c_window_size + 1  # +1 = Position
-            model_cfg = cfg.get("model_cfg", {})
-            hidden_dims = model_cfg.get("hidden_dims", [128, 128])
+            state_dim = len(FEATURES) * window_size + 1
+            device = cfg.get("device", "cpu")
+            model_path = os.path.join(base_dir, cfg.get("model_path", "a2c_samsung.pt"))
 
             agent = A2CAgent(
                 state_dim=state_dim,
                 action_dim=3,
-                hidden_dims=hidden_dims,
-                gamma=model_cfg.get("gamma", 0.99),
-                lr=model_cfg.get("lr", 1e-3),
-                value_loss_coeff=model_cfg.get("value_loss_coeff", 0.5),
-                entropy_coeff=model_cfg.get("entropy_coeff", 0.01),
-                device=self.a2c_device,
+                device=device,
             )
             agent.load(model_path)
 
-            self.model_3 = agent
-            print(f"[A2C] 공격형 A2C 모델 로드 완료: {model_path}")
-            return True
+            self.a2c_agent = agent
+            self.status["aggressive"] = "available"
+            logger.info("[A2C] 모델 로드 완료: %s", model_path)
+
         except Exception as e:
-            print(f"[A2C] Model 3 로드 실패: {e}")
-            self.model_3 = None
-            self.a2c_scaler = None
-            return False
+            logger.exception("[A2C] 모델 로드 실패: %s", e)
+            self.status["aggressive"] = "unavailable"
 
-    def _build_latest_state_and_indicators(self) -> Tuple[np.ndarray, Dict[str, float]]:
+    def _run_a2c_prediction(
+        self, symbol: str = "005930"
+    ) -> Tuple[str, float, Dict[str, float], Dict[str, float]]:
         """
-        config.yaml 설정에 따라:
-        - 삼성전자 + KOSPI + VIX 데이터를 다운로드
-        - 기술지표 계산 후 scaler로 정규화
-        - 최근 window_size일을 사용해 state 벡터 생성
-        - 마지막 날짜의 indicator dict 생성
+        공격형(A2C) 모델 실제 예측 로직.
         """
-        if self.a2c_cfg is None or self.a2c_window_size is None or self.a2c_scaler is None:
-            raise RuntimeError("A2C 설정/스케일러가 초기화되지 않았습니다. load_model_3()을 먼저 호출해야 합니다.")
+        if self.a2c_agent is None or self.a2c_cfg is None:
+            raise RuntimeError("공격형(A2C) 모델이 로드되지 않았습니다.")
 
-        cfg = self.a2c_cfg
+        try:
+            from data_utils import (
+                download_data,
+                add_indicators,
+                build_state,
+                FEATURES,
+            )
 
-        raw = download_data(
-            cfg["ticker"],
-            cfg["kospi_ticker"],
-            cfg["vix_ticker"],
-            cfg["start_date"],
-            cfg["end_date"],
-        )
-        df = add_indicators(raw)
-        df = df.dropna().sort_index()
+            cfg = self.a2c_cfg
+            ticker = cfg.get("ticker", "005930.KS")
+            kospi_ticker = cfg.get("kospi_ticker", "^KS11")
+            vix_ticker = cfg.get("vix_ticker", "^VIX")
+            start_date = cfg.get("start_date", "2010-01-01")
+            end_date = cfg.get("end_date", None)
 
-        if len(df) < self.a2c_window_size:
-            raise ValueError(f"데이터 길이가 window_size({self.a2c_window_size}) 보다 짧습니다.")
+            # 1) 데이터 다운로드 + 지표 추가
+            df = download_data(
+                ticker=ticker,
+                kospi_ticker=kospi_ticker,
+                vix_ticker=vix_ticker,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            df = add_indicators(df)
 
-        # FEATURES 스케일링
-        df[FEATURES] = self.a2c_scaler.transform(df[FEATURES])
+            if len(df) < self.a2c_window_size:
+                raise RuntimeError("A2C 예측을 위한 데이터가 충분하지 않습니다.")
 
-        window_df = df.iloc[-self.a2c_window_size :]
-        state = build_state(window_df, position_flag=0)  # 웹 기준: 기본 포지션 = 미보유(0)
+            window_df = df.iloc[-self.a2c_window_size :]
+            indicators = window_df.iloc[-1].to_dict()
 
-        latest_row = window_df.iloc[-1]
-        indicators: Dict[str, float] = {feat: float(latest_row[feat]) for feat in FEATURES}
+            # (선택) scaler 적용
+            if self.a2c_scaler is not None:
+                window_df[FEATURES] = self.a2c_scaler.transform(window_df[FEATURES])
 
-        return state, indicators
+            # 2) state 구성 (np.ndarray)
+            state = build_state(window_df, position_flag=0)
 
-    def predict_marl(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """MARL 4-agent 모델 예측 (현재 더미 로직)"""
-        if self.marl_model is None:
-            raise ValueError("MARL 모델이 로드되지 않았습니다.")
+            # 3) 행동 선택 (deterministic=True로 greedy 사용)
+            action_idx, _ = self.a2c_agent.act(state, deterministic=True)
 
-        # TODO: 실제 데이터 전처리 + MARL 예측 로직 구현
-        signal = "매수"
-        confidence = 0.75
-        return signal, confidence, features
+            mapping = {0: "BUY", 1: "SELL", 2: "HOLD"}
+            signal = mapping.get(int(action_idx), "HOLD")
 
-    def predict_model_2(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """Model 2 예측 (현재 더미 로직)"""
-        if self.model_2 is None:
-            raise ValueError("Model 2가 로드되지 않았습니다.")
+            confidence = 0.8  # 일단 고정값 (나중에 policy 확률로 바꿀 수 있음)
+            feature_importance: Dict[str, float] = {}  # SHAP 붙일 때 채우기
 
-        # TODO: 실제 데이터 전처리 + model_2 예측 로직 구현
-        signal = "보유"
-        confidence = 0.60
-        return signal, confidence, features
+            clean_indicators: Dict[str, float] = {}
+            for k, v in indicators.items():
+                try:
+                    clean_indicators[str(k)] = float(v)
+                except (TypeError, ValueError):
+                    continue
 
-    def predict_model_3(self, symbol: Optional[str] = None) -> Tuple[str, float, Dict[str, float]]:
+            return signal, confidence, clean_indicators, feature_importance
+
+        except Exception:
+            logger.exception("[A2C] 예측 중 오류 발생")
+            raise
+
+    def predict_aggressive(
+        self, symbol: str = "005930"
+    ) -> Tuple[str, float, Dict[str, float], Dict[str, float]]:
         """
-        공격형 A2C 예측.
-
-        - 최신 market 데이터 기반으로 state 생성
-        - A2C policy에서 행동 확률 계산
-        - 최고 확률 행동을 signal로 선택
-        - 최고 확률을 confidence_score로 사용
+        공격형(A2C) 모델 예측 공용 인터페이스.
         """
-        if self.model_3 is None:
-            raise ValueError("A2C(Model 3)가 로드되지 않았습니다.")
-
-        state, indicators = self._build_latest_state_and_indicators()
-
-        with torch.no_grad():
-            state_t = torch.tensor(state, dtype=torch.float32, device=self.model_3.device).unsqueeze(0)
-            logits, _ = self.model_3.ac_net(state_t)
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
-
-        action_idx = int(np.argmax(probs))
-        action_map = {0: "매수", 1: "매도", 2: "보유"}
-        signal = action_map.get(action_idx, "보유")
-        confidence = float(probs[action_idx])
-
-        return signal, confidence, indicators
-
-    def get_model_status(self) -> Dict[str, str]:
-        """모델 상태 확인용"""
-        return {
-            "marl_4agent": "available" if self.marl_model is not None else "unavailable",
-            "model_2": "available" if self.model_2 is not None else "unavailable",
-            "model_3": "available" if self.model_3 is not None else "unavailable",
-        }
+        if self.status.get("aggressive") != "available":
+            raise RuntimeError("공격형(A2C) 모델이 로드되지 않았습니다.")
+        return self._run_a2c_prediction(symbol=symbol)
 
 
-# 전역 인스턴스
+# 전역 인스턴스 (main.py 에서 import 해서 사용)
 model_loader = ModelLoader()

@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import copy
 import random
 import numpy as np
-from config import N_AGENTS, LR, TAU, MIXER_EMBED_DIM, BATCH_SIZE, GAMMA
+from marl3_config import N_AGENTS, LR, TAU, MIXER_EMBED_DIM, BATCH_SIZE, GAMMA
 
 # --- [개선] Dueling DQN 구조 (최적화 버전) ---
 class Q_Net(nn.Module):
