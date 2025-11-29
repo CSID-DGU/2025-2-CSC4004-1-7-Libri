@@ -89,9 +89,6 @@ jspm_packages/
 # DynamoDB Local files
 .dynamodb/
 
-# Data files
-src/data/
-
 # AI model files
 *.pt
 *.pth
