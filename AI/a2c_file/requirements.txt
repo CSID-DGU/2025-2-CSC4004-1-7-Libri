@@ -1,0 +1,14 @@
+numpy==1.26.4
+pandas==2.1.4
+pandas_ta @ https://downloads.sourceforge.net/project/pandas-ta.mirror/0.3.14/PandasTA-v0.3.14b%20source%20code.tar.gz
+yfinance==0.2.44
+torch==2.2.2
+matplotlib==3.8.4
+shap==0.45.0
+tqdm==4.66.4
+PyYAML==6.0.2
+finance-datareader>=0.9.96
+requests-file>=1.5.1
+scikit-learn==1.4.2
+joblib==1.4.0
+flask==3.0.3

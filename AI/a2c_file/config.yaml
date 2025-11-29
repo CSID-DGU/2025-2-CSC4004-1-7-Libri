@@ -1,0 +1,63 @@
+# ===== 데이터 / 기간 =====
+ticker: "005930.KS"
+kospi_ticker: "^KS11"
+vix_ticker: "^VIX"
+start_date: "2010-11-26"
+end_date:   "2025-11-26"   # 👉 진짜 '오늘'까지 쓰고 싶으면 여기 날짜를 오늘로 맞춰줘
+
+# ===== (고정 규칙) 분할 =====
+#  - data_utils.train_test_split_last_10y_and_1y 사용
+#  - 마지막 날짜 기준:
+#       train: 직전 10년
+#       test : 마지막 365일 (캘린더 기준)
+
+# ===== 모델 / 상태 정의 =====
+window_size: 5  # 5일치 데이터를 보고 판단
+
+model_cfg:
+  type: "A2C"
+  hidden_dims: [128, 128]
+
+# ===== A2C 학습 파라미터 =====
+episodes: 2000
+gamma: 0.99
+lr: 0.001
+
+value_loss_coeff: 0.5    # 크리틱 비중
+entropy_coeff: 0.01      # 탐험 정도
+
+validate_every_n_episodes: 10
+
+# ===== 거래 / 보상 =====
+trade_penalty: 0.001        # 거래 코스트 (조금 줄이면 트레이딩이 더 활발해짐)
+use_daily_unrealized: true  # 매일 평가손익 반영
+
+reward:
+  use_composite: true
+  roll_window: 63      # 3개월 정도의 롤링 윈도우
+  ema_alpha: 0.05
+  rf: 0.0
+
+  # 합성 보상 가중치
+  w1: 0.35   # Rann(Sharpe-like)
+  w2: 0.25   # Downside risk penalty
+  w3: 0.20   # Excess return / beta
+  w4: 0.20   # Treynor-like
+
+  beta_eps: 0.2
+
+  # 스케일 (대략적인 값 – 나중에 튜닝 포인트)
+  scale:
+    rann: 0.005
+    ddown: 0.02
+    dret: 0.005
+    treynor: 0.005
+
+  clip: 2.0
+  scale_factor: 10.0   # 🔥 composite_reward 크기 조절용 (1~20 사이에서 튜닝)
+
+# ===== 기타 =====
+seed: 42
+device: "cpu"
+model_path: "a2c_samsung.pt"
+report_dir: "reports"
