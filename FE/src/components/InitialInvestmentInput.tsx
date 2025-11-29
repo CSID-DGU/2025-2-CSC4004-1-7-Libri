@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { caretLeft as caretLeftIcon } from "@/assets/icons";
+import { default as CaretLeftIcon } from "@/assets/icons/caret-left.svg?react";
 
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <img src={caretLeftIcon} alt="Caret Left" className="block text-[#686B6D]" />
+            <CaretLeftIcon style={{ color: "var(--achromatic-600)" }} />
         </div>
     );
 }

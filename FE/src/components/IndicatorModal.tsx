@@ -1,4 +1,4 @@
-import { close as closeIcon } from "@/assets/icons";
+import { default as CloseIcon } from "@/assets/icons/caret-left.svg?react";
 
 interface IndicatorModalProps {
     indicator: {
@@ -42,7 +42,7 @@ function ModalHeader({ title, onClose }: { title: string; onClose: () => void })
                             className="box-border content-stretch flex flex-col h-full items-center justify-center overflow-clip p-[2px] relative shrink-0"
                         >
                             <div className="relative shrink-0 size-[24px]">
-                                <img src={closeIcon} alt="Close" className="block text-[#A9ABAD]" />
+                                <CloseIcon style={{ color: "var(--achromatic-400)" }} />
                             </div>
                         </button>
                     </div>

@@ -1,10 +1,8 @@
 import { useState } from "react";
-import {
-    settings as SettingsIcon,
-    ai as AiSparkIcon,
-    plus as PlusIcon,
-    logo as LogoIcon,
-} from "@/assets/icons";
+import { default as SettingsIcon } from "@/assets/icons/settings.svg?react";
+import { default as AiSparkIcon } from "@/assets/icons/AI.svg?react";
+import { default as PlusIcon } from "@/assets/icons/plus.svg?react";
+import { default as LogoIcon } from "@/assets/icons/Logo.svg?react";
 import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import imgCiLogoMark021 from "@/assets/4ce6de04287ac1cd44af2322f588b24a7b2ae7c0.png";
 import StockDetail from "./StockDetail";
@@ -12,7 +10,7 @@ import StockDetail from "./StockDetail";
 function Logo() {
     return (
         <div className="relative shrink-0 size-[28px]" data-name="Logo">
-            <img src={LogoIcon} alt="Logo" className="block size-full" />
+            <LogoIcon style={{ color: "var(--achromatic-600)" }} />
         </div>
     );
 }
@@ -20,7 +18,7 @@ function Logo() {
 function Settings() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="settings">
-            <img src={SettingsIcon} alt="Settings" className="block size-full text-[#686B6D]" />
+            <SettingsIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }
@@ -64,7 +62,7 @@ function Frame14() {
 function Ai() {
     return (
         <div className="relative shrink-0 size-[18px]" data-name="AI">
-            <img src={AiSparkIcon} alt="AI" className="block size-full text-[#1fa9a4]" />
+            <AiSparkIcon style={{ color: "var(--component-main)" }} />
         </div>
     );
 }
@@ -503,7 +501,7 @@ function Frame26({
 function Plus() {
     return (
         <div className="relative shrink-0 size-[20px]" data-name="plus">
-            <img src={PlusIcon} alt="Plus" className="block size-full" />
+            <PlusIcon style={{ color: "var(--achromatic-100)" }} />
         </div>
     );
 }

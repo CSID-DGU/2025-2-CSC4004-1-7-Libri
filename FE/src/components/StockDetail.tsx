@@ -1,4 +1,6 @@
-import { caretLeft as CaretLeftIcon, ai as AiSparkIcon, info as infoIcon } from "@/assets/icons";
+import { default as CaretLeftIcon } from "@/assets/icons/caret-left.svg?react";
+import { default as AiSparkIcon } from "@/assets/icons/AI.svg?react";
+import { default as InfoIcon } from "@/assets/icons/info.svg?react";
 import { useEffect, useRef, useState } from "react";
 import { useInvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { createChart } from "lightweight-charts";
@@ -116,7 +118,7 @@ const indicatorData: Record<string, IndicatorInfo> = {
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <img src={CaretLeftIcon} alt="Caret Left" className="block size-full text-[#686B6D]" />
+            <CaretLeftIcon style={{ color: "var(--achromatic-600)" }} />
         </div>
     );
 }
@@ -359,7 +361,7 @@ function Component4() {
 function Ai() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="AI">
-            <img src={AiSparkIcon} alt="AI" className="block size-full text-[#151B26]" />
+            <AiSparkIcon style={{ color: "var(--achromatic-800)" }} />
         </div>
     );
 }
@@ -471,7 +473,7 @@ function Tab1({ isActive, onClick }: { isActive: boolean; onClick: () => void })
 function Ai1({ isActive }: { isActive: boolean }) {
     return (
         <div className="relative shrink-0 size-[18px]" data-name="AI">
-            <img src={AiSparkIcon} alt="AI" className="block size-full text-[#151B26]" />
+            <AiSparkIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }
@@ -555,7 +557,7 @@ function Frame9() {
 function Info1() {
     return (
         <div className="relative shrink-0 size-[16px]" data-name="info">
-            <img src={infoIcon} alt="Info" className="block size-full text-[#A1A4A8]" />
+            <InfoIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }
@@ -739,7 +741,7 @@ const mockTradingHistory: DayTrading[] = [
 function InfoIconTrading() {
     return (
         <div className="relative shrink-0 size-[16px]" data-name="info">
-            <img src={infoIcon} alt="Info" className="block size-full text-[#A1A4A8]" />
+            <InfoIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }

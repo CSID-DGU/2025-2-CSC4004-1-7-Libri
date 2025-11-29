@@ -1,14 +1,12 @@
 import { useState } from "react";
-import {
-    caretLeft as caretLeftIcon,
-    lightning as lightningIcon,
-    shield as shieldIcon,
-} from "@/assets/icons";
+import { default as CaretLeftIcon } from "@/assets/icons/caret-left.svg?react";
+import { default as LightningIcon } from "@/assets/icons/lightning.svg?react";
+import { default as ShieldIcon } from "@/assets/icons/shield.svg?react";
 
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <img src={caretLeftIcon} alt="Caret Left" className="block text-[#686B6D]" />
+            <CaretLeftIcon style={{ color: "var(--achromatic-600)" }} />
         </div>
     );
 }
@@ -114,7 +112,7 @@ function Lightning({ isSelected }: { isSelected: boolean }) {
     const color = isSelected ? "#1FA9A4" : "#A1A4A8";
     return (
         <div className="relative shrink-0 size-[24px]" data-name="lightning">
-            <img src={lightningIcon} alt="Lightning" className="block" />
+            <LightningIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }
@@ -158,7 +156,7 @@ function Shield({ isSelected }: { isSelected: boolean }) {
     const opacity = isSelected ? "opacity-100" : "opacity-60";
     return (
         <div className="relative shrink-0 size-[24px]" data-name="shield">
-            <img src={shieldIcon} alt="Shield" className="block" />
+            <ShieldIcon style={{ color: "var(--achromatic-500)" }} />
         </div>
     );
 }

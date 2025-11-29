@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { caretLeft } from "@/assets/icons";
+import { default as CaretLeftIcon } from "@/assets/icons/caret-left.svg?react";
 
 function CaretLeft() {
     return (
         <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <img src={caretLeft} alt="Caret Left" className="block size-full text-[#686B6D]" />
+            <CaretLeftIcon style={{ color: "var(--achromatic-600)" }} />
         </div>
     );
 }
@@ -28,7 +28,7 @@ function Frame() {
     );
 }
 
-function Component1() {
+function Header() {
     return (
         <div className="basis-0 grow min-h-px min-w-px relative shrink-0" data-name="헤더 타이틀">
             <div className="flex flex-row items-center justify-center size-full">
@@ -57,7 +57,7 @@ function Frame1({ onBack }: { onBack: () => void }) {
             >
                 <Component />
             </button>
-            <Component1 />
+            <Header />
             <Component2 />
         </div>
     );
