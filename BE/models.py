@@ -81,3 +81,13 @@ class ModelInfo(BaseModel):
 
 class ModelListResponse(BaseModel):
     models: List[ModelInfo]
+
+# [신규] 온보딩 완료 시 보낼 데이터 형식
+class PortfolioSetupRequest(BaseModel):
+    portfolio_id: str
+    initial_capital: float
+    investment_style: str  # 'aggressive', 'moderate', 'stable'
+    
+    # 삼성전자 보유 정보
+    shares_held: int
+    average_entry_price: float
