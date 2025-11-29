@@ -2,11 +2,7 @@ import { useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 
-interface IntroSectionProps {
-    stockName: string;
-}
-
-function IntroSection({ stockName }: IntroSectionProps) {
+function IntroSection() {
     return (
         <div className="flex flex-col px-5 text-nowrap">
             <div className="title-1 onboarding-big">
@@ -57,7 +53,7 @@ export default function StockQuantityInput({
                     className="flex w-full flex-col px-0 py-4"
                     style={{ gap: "20px", marginTop: "16px", paddingInline: "20px" }}
                 >
-                    <IntroSection stockName={stockName} />
+                    <IntroSection />
 
                     <div className="px-5">
                         <div className="flex items-center" style={{ gap: "10px" }}>
