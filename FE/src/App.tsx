@@ -5,7 +5,6 @@ import StockPriceInput from "./components/StockPriceInput";
 import InitialInvestmentInput from "./components/InitialInvestmentInput";
 import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
-import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 
 type Page =
@@ -49,6 +48,7 @@ type Action =
     | { type: "SET_ONBOARDING_FIELD"; field: keyof FormData; value: string }
     | { type: "SET_ADD_STOCK_FIELD"; field: keyof FormData; value: string }
     | { type: "SET_INITIAL_INVESTMENT"; value: string }
+    | { type: "SET_INVESTMENT_STYLE"; style: InvestmentStyle | "" }
     | { type: "COMPLETE_ONBOARDING"; style: InvestmentStyle }
     | { type: "ADD_STOCK" }
     | { type: "RESET_ADD_STOCK_FORM" };
@@ -62,7 +62,7 @@ const initialState: State = {
     addStockForm: { stockName: "", quantity: "", price: "" },
 };
 
-function createStock(form: FormData, logoUrl: string): Stock {
+function createStock(form: FormData, logoUrl?: string): Stock {
     const quantity = parseInt(form.quantity);
     const price = parseInt(form.price);
     return {
@@ -96,18 +96,21 @@ function reducer(state: State, action: Action): State {
         case "SET_INITIAL_INVESTMENT":
             return { ...state, initialInvestment: action.value };
 
+        case "SET_INVESTMENT_STYLE":
+            return { ...state, investmentStyle: action.style };
+
         case "COMPLETE_ONBOARDING":
             return {
                 ...state,
                 investmentStyle: action.style,
-                stocks: [createStock(state.onboardingForm, imgFrame26089667)],
+                stocks: [createStock(state.onboardingForm)],
                 currentPage: "home",
             };
 
         case "ADD_STOCK":
             return {
                 ...state,
-                stocks: [...state.stocks, createStock(state.addStockForm, imgFrame26089667)],
+                stocks: [...state.stocks, createStock(state.addStockForm)],
                 currentPage: "home",
             };
 
@@ -174,57 +177,50 @@ export default function App() {
         dispatch({ type: "ADD_STOCK" });
     };
 
-    // 뒤로 가기 핸들러 - 상태 초기화와 함께
-    const goBackWithReset = (
-        page: Page,
-        resetField?: { type: "onboarding" | "addStock"; field: keyof FormData }
-    ) => {
-        if (resetField) {
-            const actionType =
-                resetField.type === "onboarding" ? "SET_ONBOARDING_FIELD" : "SET_ADD_STOCK_FIELD";
-            dispatch({ type: actionType as any, field: resetField.field, value: "" });
-        }
-        goToPage(page);
-    };
+    const goBack = (page: Page) => goToPage(page);
 
     return (
         <div className="bg-white min-h-screen">
             <InvestmentStyleProvider investmentStyle={state.investmentStyle || "공격형"}>
                 {state.currentPage === "onboarding" && (
-                    <Onboarding onSubmit={handleOnboardingStock} />
+                    <Onboarding
+                        onSubmit={handleOnboardingStock}
+                        initialValue={state.onboardingForm.stockName}
+                    />
                 )}
                 {state.currentPage === "quantity" && (
                     <StockQuantityInput
                         stockName={state.onboardingForm.stockName}
-                        onBack={() =>
-                            goBackWithReset("onboarding", {
-                                type: "onboarding",
-                                field: "stockName",
-                            })
-                        }
+                        onBack={() => goBack("onboarding")}
                         onSubmit={handleOnboardingQuantity}
+                        initialValue={state.onboardingForm.quantity}
                     />
                 )}
                 {state.currentPage === "price" && (
                     <StockPriceInput
-                        onBack={() =>
-                            goBackWithReset("quantity", { type: "onboarding", field: "quantity" })
-                        }
+                        onBack={() => goBack("quantity")}
                         onSubmit={handleOnboardingPrice}
+                        initialValue={state.onboardingForm.price}
                     />
                 )}
                 {state.currentPage === "investment" && (
                     <InitialInvestmentInput
-                        onBack={() =>
-                            goBackWithReset("price", { type: "onboarding", field: "price" })
-                        }
+                        onBack={() => goBack("price")}
                         onSubmit={handleInitialInvestment}
+                        initialValue={state.initialInvestment}
                     />
                 )}
                 {state.currentPage === "style" && (
                     <InvestmentStyleSelection
-                        onBack={() => goBackWithReset("investment")}
+                        onBack={() => goBack("investment")}
                         onSubmit={handleStyleSelection}
+                        initialStyle={state.investmentStyle || ""}
+                        onStyleChange={(style) =>
+                            dispatch({
+                                type: "SET_INVESTMENT_STYLE",
+                                style: style as InvestmentStyle,
+                            })
+                        }
                     />
                 )}
                 {state.currentPage === "home" && (
@@ -236,23 +232,28 @@ export default function App() {
                     />
                 )}
                 {state.currentPage === "add-stock" && (
-                    <Onboarding onSubmit={handleAddStockName} onBack={() => goToPage("home")} />
+                    <Onboarding
+                        onSubmit={handleAddStockName}
+                        onBack={() => goBack("home")}
+                        initialValue={state.addStockForm.stockName}
+                        title="종목 추가"
+                    />
                 )}
                 {state.currentPage === "add-quantity" && (
                     <StockQuantityInput
                         stockName={state.addStockForm.stockName}
-                        onBack={() =>
-                            goBackWithReset("add-stock", { type: "addStock", field: "stockName" })
-                        }
+                        onBack={() => goBack("add-stock")}
                         onSubmit={handleAddStockQuantity}
+                        initialValue={state.addStockForm.quantity}
+                        title="종목 추가"
                     />
                 )}
                 {state.currentPage === "add-price" && (
                     <StockPriceInput
-                        onBack={() =>
-                            goBackWithReset("add-quantity", { type: "addStock", field: "quantity" })
-                        }
+                        onBack={() => goBack("add-quantity")}
                         onSubmit={handleAddStockPrice}
+                        initialValue={state.addStockForm.price}
+                        title="종목 추가"
                     />
                 )}
             </InvestmentStyleProvider>

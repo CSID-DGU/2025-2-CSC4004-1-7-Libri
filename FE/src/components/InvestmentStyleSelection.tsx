@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useState, type ComponentType, type SVGProps } from "react";
 import Header from "@/components/layout/Header";
 import LightningIcon from "@/assets/icons/lightning.svg?react";
 import ShieldIcon from "@/assets/icons/shield.svg?react";
@@ -101,13 +101,28 @@ function OptionCard({ label, description, Icon, selected, onSelect }: OptionCard
 interface InvestmentStyleSelectionProps {
     onBack?: () => void;
     onSubmit: (style: string) => void;
+    initialStyle?: string;
+    onStyleChange?: (style: string) => void;
 }
 
 export default function InvestmentStyleSelection({
     onBack,
     onSubmit,
+    initialStyle = "",
+    onStyleChange,
 }: InvestmentStyleSelectionProps) {
-    const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
+    const [selectedStyle, setSelectedStyle] = useState<string | null>(
+        initialStyle || null
+    );
+
+    useEffect(() => {
+        setSelectedStyle(initialStyle || null);
+    }, [initialStyle]);
+
+    const handleSelect = (style: string) => {
+        setSelectedStyle(style);
+        onStyleChange?.(style);
+    };
 
     const handleSubmit = () => {
         if (selectedStyle) {
@@ -133,7 +148,7 @@ export default function InvestmentStyleSelection({
                                     key={option.id}
                                     {...option}
                                     selected={selectedStyle === option.id}
-                                    onSelect={() => setSelectedStyle(option.id)}
+                                    onSelect={() => handleSelect(option.id)}
                                 />
                             ))}
                         </div>

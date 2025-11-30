@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 
@@ -21,10 +21,19 @@ function IntroSection() {
 interface InitialInvestmentInputProps {
     onBack?: () => void;
     onSubmit: (investment: string) => void;
+    initialValue?: string;
 }
 
-export default function InitialInvestmentInput({ onBack, onSubmit }: InitialInvestmentInputProps) {
-    const [investment, setInvestment] = useState("");
+export default function InitialInvestmentInput({
+    onBack,
+    onSubmit,
+    initialValue = "",
+}: InitialInvestmentInputProps) {
+    const [investment, setInvestment] = useState(initialValue);
+
+    useEffect(() => {
+        setInvestment(initialValue);
+    }, [initialValue]);
 
     const hasValue = investment.trim().length > 0;
 
