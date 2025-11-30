@@ -214,7 +214,7 @@ function StockList({
     }
 
     return (
-        <div className="flex w-full flex-col gap-3">
+        <div className="flex w-full flex-col gap-[12px]">
             {stocks.map((stock) => (
                 <StockCard key={stock.name} stock={stock} onClick={onStockClick} />
             ))}
