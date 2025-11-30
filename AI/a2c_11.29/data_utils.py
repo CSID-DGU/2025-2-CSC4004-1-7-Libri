@@ -5,8 +5,8 @@ import pandas as pd
 from typing import Tuple, List
 
 import yfinance as yf
-import pandas_ta as ta
-
+# import pandas_ta as ta
+import pandas_ta_classic as ta
 
 # ============================================================
 # 1. 사용할 피처(기술 지표) 정의
