@@ -5,7 +5,6 @@ import StockPriceInput from "./components/StockPriceInput";
 import InitialInvestmentInput from "./components/InitialInvestmentInput";
 import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
-import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 
 type Page =
@@ -63,7 +62,7 @@ const initialState: State = {
     addStockForm: { stockName: "", quantity: "", price: "" },
 };
 
-function createStock(form: FormData, logoUrl: string): Stock {
+function createStock(form: FormData, logoUrl?: string): Stock {
     const quantity = parseInt(form.quantity);
     const price = parseInt(form.price);
     return {
@@ -104,14 +103,14 @@ function reducer(state: State, action: Action): State {
             return {
                 ...state,
                 investmentStyle: action.style,
-                stocks: [createStock(state.onboardingForm, imgFrame26089667)],
+                stocks: [createStock(state.onboardingForm)],
                 currentPage: "home",
             };
 
         case "ADD_STOCK":
             return {
                 ...state,
-                stocks: [...state.stocks, createStock(state.addStockForm, imgFrame26089667)],
+                stocks: [...state.stocks, createStock(state.addStockForm)],
                 currentPage: "home",
             };
 
