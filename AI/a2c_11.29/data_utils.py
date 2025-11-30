@@ -5,7 +5,76 @@ import pandas as pd
 from typing import Tuple, List
 
 import yfinance as yf
-import pandas_ta as ta
+# ---- pandas-ta 호환 래퍼 -----------------------------
+try:
+    import pandas_ta as ta
+    _USING_PANDAS_TA = True
+except Exception:
+    _USING_PANDAS_TA = False
+    try:
+        import ta as _ta
+    except Exception as e:
+        raise RuntimeError(
+            "pandas-ta도, ta도 설치되어 있지 않습니다. 다음 중 하나를 설치하세요:\n"
+            "  pip install pandas-ta  (Python 3.12+)\n"
+            "  pip install ta          (대체 라이브러리)"
+        ) from e
+
+    class _PTAWrapper:
+        @staticmethod
+        def ema(close, length=12):
+            return _ta.trend.EMAIndicator(close=close, window=length).ema_indicator()
+
+        @staticmethod
+        def sma(close, length=20):
+            return _ta.trend.SMAIndicator(close=close, window=length).sma_indicator()
+
+        @staticmethod
+        def macd(close, fast=12, slow=26, signal=9):
+            ind = _ta.trend.MACD(close=close, window_slow=slow, window_fast=fast, window_sign=signal)
+            # pandas_ta returns DataFrame with columns like MACD_12_26_9, MACDs_12_26_9, MACDh_12_26_9
+            # But here we just need the object to access columns later?
+            # data_utils.py uses: macd.iloc[:, 0] (MACD line)
+            return pd.DataFrame({
+                f"MACD_{fast}_{slow}_{signal}": ind.macd(),
+                f"MACDs_{fast}_{slow}_{signal}": ind.macd_signal(),
+                f"MACDh_{fast}_{slow}_{signal}": ind.macd_diff()
+            })
+
+        @staticmethod
+        def rsi(close, length=14):
+            return _ta.momentum.RSIIndicator(close=close, window=length).rsi()
+
+        @staticmethod
+        def stoch(high, low, close, k=14, d=3):
+            ind = _ta.momentum.StochasticOscillator(
+                high=high, low=low, close=close, window=k, smooth_window=3
+            )
+            return pd.DataFrame({
+                f"STOCHk_{k}_{d}_3": ind.stoch(),
+                f"STOCHd_{k}_{d}_3": ind.stoch_signal()
+            })
+
+        @staticmethod
+        def atr(high, low, close, length=14):
+            return _ta.volatility.AverageTrueRange(
+                high=high, low=low, close=close, window=length
+            ).average_true_range()
+
+        @staticmethod
+        def bbands(close, length=20, std=2.0):
+            bb = _ta.volatility.BollingerBands(close=close, window=length, window_dev=std)
+            return pd.DataFrame({
+                f"BBL_{length}_{std}": bb.bollinger_lband(),
+                f"BBM_{length}_{std}": bb.bollinger_mavg(),
+                f"BBU_{length}_{std}": bb.bollinger_hband(),
+                f"BBB_{length}_{std}": bb.bollinger_pband(), # %B
+                f"BBP_{length}_{std}": bb.bollinger_wband()  # Bandwidth? No, wband is bandwidth, pband is %b
+            })
+
+    ta = _PTAWrapper()
+# ------------------------------------------------------------------------------
+
 
 
 # ============================================================

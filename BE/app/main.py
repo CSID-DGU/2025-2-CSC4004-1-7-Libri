@@ -24,3 +24,6 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
 @app.get("/")
 def read_root():
     return {"message": "Database is set up!"}
+
+from .routers import ai
+app.include_router(ai.router)
