@@ -1,16 +1,21 @@
 """
-간단한 API 테스트 스크립트
+AI Trading Backend API 테스트 스크립트
+
+실행 방법:
+    1. 서버 실행: python main.py (다른 터미널에서)
+    2. 테스트 실행: python test_api.py
 """
 import requests
 import json
 
 BASE_URL = "http://localhost:8000"
-API_KEY = "your_api_key_here"  # .env 파일의 API_KEY와 동일하게 설정
+API_KEY = ""  # .env 파일의 API_KEY와 동일하게 설정 (비어있으면 인증 비활성화)
 
 headers = {
     "Content-Type": "application/json",
-    "X-API-Key": API_KEY
 }
+if API_KEY:
+    headers["X-API-Key"] = API_KEY
 
 def test_health():
     """헬스 체크 테스트"""
@@ -34,8 +39,8 @@ def test_model_list():
     print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
 
 def test_marl_prediction():
-    """MARL 모델 예측 테스트"""
-    print("\n=== MARL Prediction ===")
+    """MARL (안정형) 모델 예측 테스트"""
+    print("\n=== MARL 3-Agent (안정형) Prediction ===")
     data = {
         "symbol": "005930",
         "features": {
@@ -55,37 +60,35 @@ def test_marl_prediction():
     }
     response = requests.post(f"{BASE_URL}/predict/marl", headers=headers, json=data)
     print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
+    if response.status_code == 200:
+        result = response.json()
+        print(f"Signal: {result.get('signal')}")
+        print(f"Confidence: {result.get('confidence_score'):.2%}")
+        print(f"XAI Explanation: {result.get('xai_explanation')}")
+    else:
+        print(f"Error: {response.text}")
 
-def test_model2_prediction():
-    """Model 2 예측 테스트"""
-    print("\n=== Model 2 Prediction ===")
+def test_a2c_prediction():
+    """A2C (공격형) 모델 예측 테스트"""
+    print("\n=== A2C (공격형) Prediction ===")
     data = {
         "symbol": "005930",
         "features": {
-            "SMA20": 70000.0,
-            "MACD": 500.0,
-            "RSI": 65.0
+            "RSI": 25.0,
+            "MACD": 150.0,
+            "MACD_Signal": 50.0,
+            "Stoch_K": 18.0,
+            "VIX": 22.0
         }
     }
-    response = requests.post(f"{BASE_URL}/predict/model2", headers=headers, json=data)
+    response = requests.post(f"{BASE_URL}/predict/a2c", headers=headers, json=data)
     print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
-
-def test_model3_prediction():
-    """Model 3 예측 테스트"""
-    print("\n=== Model 3 Prediction ===")
-    data = {
-        "symbol": "005930",
-        "features": {
-            "SMA20": 70000.0,
-            "MACD": 500.0,
-            "RSI": 65.0
-        }
-    }
-    response = requests.post(f"{BASE_URL}/predict/model3", headers=headers, json=data)
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
+    if response.status_code == 200:
+        result = response.json()
+        print(f"Signal: {result.get('signal')}")
+        print(f"Confidence: {result.get('confidence_score'):.2%}")
+    else:
+        print(f"Error: {response.text}")
 
 def test_portfolio_creation():
     """포트폴리오 생성 테스트"""
@@ -111,7 +114,7 @@ def test_investment_record():
     print("\n=== Investment Record ===")
     params = {
         "portfolio_id": "test_user_001",
-        "model_type": "marl_4agent",
+        "model_type": "marl_3agent",
         "signal": "매수",
         "entry_price": 70000.0,
         "shares": 100,
@@ -147,30 +150,38 @@ def test_performance_metrics():
     print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
 
 if __name__ == "__main__":
+    print("=" * 60)
     print("AI Trading Backend API 테스트")
-    print("=" * 50)
+    print("=" * 60)
+    print("\n사용 가능한 모델:")
+    print("  - MARL 3-Agent (안정형): /predict/marl")
+    print("  - A2C (공격형): /predict/a2c")
     
     try:
+        # 기본 테스트
         test_health()
         test_model_status()
         test_model_list()
+        
+        # 모델 예측 테스트
+        test_marl_prediction()
+        test_a2c_prediction()
+        
+        # 포트폴리오 테스트
         test_portfolio_creation()
         test_portfolio_get()
         
-        # 각 모델 테스트
-        test_marl_prediction()
-        test_model2_prediction()
-        test_model3_prediction()
-        
+        # 투자 내역 테스트
         test_investment_record()
         test_investment_history()
         test_performance_metrics()
         
-        print("\n" + "=" * 50)
-        print("모든 테스트 완료!")
+        print("\n" + "=" * 60)
+        print("✅ 모든 테스트 완료!")
+        print("=" * 60)
         
     except requests.exceptions.ConnectionError:
-        print("\n오류: 서버에 연결할 수 없습니다.")
+        print("\n❌ 오류: 서버에 연결할 수 없습니다.")
         print("서버가 실행 중인지 확인하세요: python main.py")
     except Exception as e:
-        print(f"\n오류 발생: {str(e)}")
+        print(f"\n❌ 오류 발생: {str(e)}")
