@@ -1,40 +1,14 @@
-# BE/database.py
-
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Text, Index
+from .database import Base
 from datetime import datetime
-from typing import Generator
 
-from sqlalchemy import (
-    Column,
-    Integer,
-    Float,
-    String,
-    DateTime,
-    Text,
-    Index,
-    create_engine,
-)
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+class User(Base):
+    __tablename__ = "users"
 
-from config import DATABASE_URL
-
-# ---------------------------------------------------------------------
-# 기본 설정 (Engine, Base, Session)
-# ---------------------------------------------------------------------
-
-engine = create_engine(
-    DATABASE_URL,
-    future=True,
-    echo=False,  # 디버깅용으로 보고 싶으면 True로 변경
-)
-
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-)
-
-Base = declarative_base()
-
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    is_active = Column(Boolean, default=True)
 
 # ---------------------------------------------------------------------
 # 1) 기술 지표 테이블 (TechnicalIndicator)
@@ -90,7 +64,7 @@ class InvestmentRecord(Base):
     # 어떤 포트폴리오의 거래인지 (FE에서 portfolio_id를 문자열로 관리)
     portfolio_id = Column(String(50), index=True)
 
-    # 어떤 모델/전략으로 한 거래인지 (예: "aggressive_a2c", "marl_4agent" 등)
+    # 어떤 모델/전략으로 한 거래인지 (예: "aggressive_a2c", "marl_3agent" 등)
     model_type = Column(String(50), index=True)
 
     # 매수/매도/보유 등 신호
@@ -142,7 +116,7 @@ class Portfolio(Base):
 
 
 # ---------------------------------------------------------------------
-# 4) 주가 히스토리 테이블 (StockPrice) – stock_data_fetcher용
+# 4) 주가 히스토리 테이블 (StockPrice)
 # ---------------------------------------------------------------------
 class StockPrice(Base):
     __tablename__ = "stock_prices"
@@ -162,27 +136,3 @@ class StockPrice(Base):
 
 
 Index("idx_stock_price_symbol_date", StockPrice.symbol, StockPrice.date)
-
-
-# ---------------------------------------------------------------------
-# DB 유틸 함수들
-# ---------------------------------------------------------------------
-def init_db() -> None:
-    """테이블 생성"""
-    Base.metadata.create_all(bind=engine)
-
-
-def get_db() -> Generator[Session, None, None]:
-    """
-    FastAPI 의존성에서 사용하는 DB 세션 헬퍼
-
-    예:
-        @app.get("/something")
-        def read_something(db: Session = Depends(get_db)):
-            ...
-    """
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
