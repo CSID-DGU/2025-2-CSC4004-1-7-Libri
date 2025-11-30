@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 
@@ -21,10 +21,19 @@ function IntroSection() {
 interface StockPriceInputProps {
     onBack?: () => void;
     onSubmit: (price: string) => void;
+    initialValue?: string;
 }
 
-export default function StockPriceInput({ onBack, onSubmit }: StockPriceInputProps) {
-    const [price, setPrice] = useState("");
+export default function StockPriceInput({
+    onBack,
+    onSubmit,
+    initialValue = "",
+}: StockPriceInputProps) {
+    const [price, setPrice] = useState(initialValue);
+
+    useEffect(() => {
+        setPrice(initialValue);
+    }, [initialValue]);
 
     const hasValue = price.trim().length > 0;
 

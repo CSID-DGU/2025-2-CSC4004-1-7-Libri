@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 
@@ -21,10 +21,19 @@ function IntroSection() {
 interface StockNameProps {
     onSubmit: (stockName: string) => void;
     onBack?: () => void;
+    initialValue?: string;
 }
 
-export default function StockNameScreen({ onSubmit, onBack }: StockNameProps) {
-    const [stockInput, setStockInput] = useState("");
+export default function StockNameScreen({
+    onSubmit,
+    onBack,
+    initialValue = "",
+}: StockNameProps) {
+    const [stockInput, setStockInput] = useState(initialValue);
+
+    useEffect(() => {
+        setStockInput(initialValue);
+    }, [initialValue]);
 
     const handleSubmit = () => {
         if (stockInput.trim()) {
