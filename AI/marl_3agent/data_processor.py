@@ -1,12 +1,13 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import pickle
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # --- Config ---
 from config import TICKER, VIX_TICKER, START_DATE, END_DATE
 
-# ---- pandas-ta 호환 래퍼 (이전과 동일) -----------------------------
+# ---- pandas-ta 호환 래퍼 -----------------------------
 try:
     import pandas_ta as ta
     _USING_PANDAS_TA = True
@@ -83,7 +84,6 @@ class DataProcessor:
         self.original_prices = None
         self.scalers = {}
 
-    # _flatten_cols, _strip_suffix, fetch_data 함수는 이전과 동일
     def _flatten_cols(self, df: pd.DataFrame) -> pd.DataFrame:
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = ['_'.join([str(x) for x in col if str(x) != '']) for col in df.columns]
@@ -174,7 +174,7 @@ class DataProcessor:
                         return df_like[c]
             raise KeyError(f"원하는 컬럼을 찾지 못했습니다. 사용 가능한 컬럼: {cols}")
 
-        # --- 2.1. 기술적 지표 (이전과 동일) ---
+        # --- 2.1. 기술적 지표 ---
         df['SMA20'] = ta.sma(df['Close'], length=20)
         macd = ta.macd(df['Close'])
         df['MACD'] = pick(macd, ['MACD_12_26_9', 'MACD', 'macd'])
@@ -190,7 +190,7 @@ class DataProcessor:
         denom = (upper - lower).replace(0, np.nan)
         df['Bollinger_B'] = ((df['Close'] - lower) / (denom + 1e-9)).clip(-1, 2)
 
-        # --- 2.2. 재무제표 지표 (이전과 동일) ---
+        # --- 2.2. 재무제표 지표 ---
         print("분기별 재무제표 가져오는 중...")
         qf = self.ticker_obj.quarterly_financials
         qbs = self.ticker_obj.quarterly_balance_sheet
@@ -228,7 +228,7 @@ class DataProcessor:
             df['ROA'] = 0.0
             df['DebtRatio'] = 0.0
 
-        # --- 2.3. 추정실적 (이전과 동일) ---
+        # --- 2.3. 추정실적 ---
         print("애널리스트 추천 정보 (시계열) 가져오는 중...")
         try:
             rec = self.ticker_obj.recommendations
@@ -262,32 +262,30 @@ class DataProcessor:
             print(f"경고: 애널리스트 추천 정보({e})를 가져올 수 없습니다. 0으로 채웁니다.")
             df['AnalystRating'] = 0.0
 
-        # --- [수정] 피처 목록을 역할별로 "독점" 분리 ---
-        common_cols = ['Close', 'High', 'Low', 'Volume'] # 공통 핵심 가격
+        # --- 피처 목록 분리 ---
+        common_cols = ['Close', 'High', 'Low', 'Volume']
         
-        self.agent_0_features = [ # 단기/모멘텀
+        self.agent_0_features = [
             *common_cols,
             'RSI', 'Stoch_K', 'Stoch_D', 'ATR', 'Bollinger_B'
         ]
         
-        self.agent_1_features = [ # 중기/추세
+        self.agent_1_features = [
             *common_cols,
             'SMA20', 'MACD', 'MACD_Signal'
         ]
         
-        self.agent_2_features = [ # [수정] 시장/펀더멘탈
+        self.agent_2_features = [
             *common_cols,
-            'VIX', # <-- Agent 2가 독점
-            'ROA', 'DebtRatio', 'AnalystRating' # <-- Agent 2가 독점
+            'VIX',
+            'ROA', 'DebtRatio', 'AnalystRating'
         ]
         
-        # [수정] self.features는 세 리스트의 합집합 (중복 제거)
         self.features = sorted(list(set(self.agent_0_features + self.agent_1_features + self.agent_2_features)))
 
         df = df.dropna()
         return df
 
-    # normalize_data 함수는 이전과 동일
     def normalize_data(self, df_train, df_test):
         print("데이터 정규화 중 (Train-Test 분리 적용)...")
         
@@ -357,7 +355,7 @@ class DataProcessor:
         print(f"사용된 지표 (총 {len(self.features)}개): {', '.join(self.features)}")
         print(f"  - Agent 0 (단기): {len(self.agent_0_features)}개")
         print(f"  - Agent 1 (중기): {len(self.agent_1_features)}개")
-        print(f"  - Agent 2 (시장/펀더멘탈): {len(self.agent_2_features)}개") # <-- 수정
+        print(f"  - Agent 2 (시장/펀더멘탈): {len(self.agent_2_features)}개")
 
         return (
             df_features[self.features], 
@@ -367,3 +365,19 @@ class DataProcessor:
             self.agent_1_features,
             self.agent_2_features
         )
+
+    def save_scalers(self, filename='scalers.pkl'):
+        try:
+            with open(filename, 'wb') as f:
+                pickle.dump(self.scalers, f)
+            print(f"✅ 스케일러 저장 완료: {filename}")
+        except Exception as e:
+            print(f"⚠️ 스케일러 저장 실패: {e}")
+
+    def load_scalers(self, filename='scalers.pkl'):
+        try:
+            with open(filename, 'rb') as f:
+                self.scalers = pickle.load(f)
+            print(f"✅ 스케일러 로드 완료: {filename}")
+        except Exception as e:
+            print(f"⚠️ 스케일러 로드 실패: {e}")
