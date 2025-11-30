@@ -1,6 +1,6 @@
 import sys
 import os
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, List
 
 import numpy as np
 import torch
@@ -17,12 +17,18 @@ sys.path.append(os.path.abspath(A2C_DIR))
 from ac_model import A2CAgent
 from data_utils import FEATURES, download_data, add_indicators, build_state
 
+# MARL 3-agent 모델 설정 상수 (marl_3agent/data_processor.py와 동기화 필요)
+MARL_N_FEATURES_AGENT_0 = 9  # Close, High, Low, Volume + RSI, Stoch_K, Stoch_D, ATR, Bollinger_B
+MARL_N_FEATURES_AGENT_1 = 7  # Close, High, Low, Volume + SMA20, MACD, MACD_Signal
+MARL_N_FEATURES_AGENT_2 = 8  # Close, High, Low, Volume + VIX, ROA, DebtRatio, AnalystRating
+MARL_N_FEATURES_GLOBAL = 16  # 전체 고유 피처 수
+
 
 class ModelLoader:
     """
     세 가지 모델을 관리하는 로더.
 
-    - marl_model : 4-agent MARL (향후 안정형 / 중간형)
+    - marl_model : 3-agent MARL (QMIX 기반 멀티에이전트 강화학습)
     - model_2    : 두 번째 모델 (TODO)
     - model_3    : 공격형 A2C 모델
     """
@@ -77,26 +83,18 @@ class ModelLoader:
                 if be_config is not None:
                     sys.modules['config'] = be_config
 
-            # 각 에이전트별 피처 수 (data_processor.py 참조)
-            # agent_0: Close, High, Low, Volume + RSI, Stoch_K, Stoch_D, ATR, Bollinger_B = 9개
-            # agent_1: Close, High, Low, Volume + SMA20, MACD, MACD_Signal = 7개
-            # agent_2: Close, High, Low, Volume + VIX, ROA, DebtRatio, AnalystRating = 8개
-            n_features_agent_0 = 9
-            n_features_agent_1 = 7
-            n_features_agent_2 = 8
-            n_features_global = 16  # 전체 피처 수 (중복 제거: 16개)
-            
+            # 모듈 상단에 정의된 상수 사용
             # obs_dim = window_size * n_features + 2 (position + unrealized_return)
-            obs_dim_0 = WINDOW_SIZE * n_features_agent_0 + 2  # 10 * 9 + 2 = 92
-            obs_dim_1 = WINDOW_SIZE * n_features_agent_1 + 2  # 10 * 7 + 2 = 72
-            obs_dim_2 = WINDOW_SIZE * n_features_agent_2 + 2  # 10 * 8 + 2 = 82
+            obs_dim_0 = WINDOW_SIZE * MARL_N_FEATURES_AGENT_0 + 2  # 10 * 9 + 2 = 92
+            obs_dim_1 = WINDOW_SIZE * MARL_N_FEATURES_AGENT_1 + 2  # 10 * 7 + 2 = 72
+            obs_dim_2 = WINDOW_SIZE * MARL_N_FEATURES_AGENT_2 + 2  # 10 * 8 + 2 = 82
             
             obs_dims_list = [obs_dim_0, obs_dim_1, obs_dim_2]  # [92, 72, 82]
             action_dim = 3
             
             # state_dim = window_size * n_features_global + (n_agents * 2)
             # 10 * 16 + (3 * 2) = 160 + 6 = 166
-            state_dim = WINDOW_SIZE * n_features_global + (N_AGENTS * 2)
+            state_dim = WINDOW_SIZE * MARL_N_FEATURES_GLOBAL + (N_AGENTS * 2)
 
             self.marl_model = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
 
@@ -280,7 +278,9 @@ class ModelLoader:
             votes.append(-1)  # 매도
         else:
             votes.append(0)  # 보유
-        xai_importance.append({"feature": "RSI", "importance": abs(rsi - 50) / 50})
+        # RSI importance: deviation from neutral (50) normalized to 0-1 range
+        rsi_importance = min(abs(rsi - 50) / 50.0, 1.0)
+        xai_importance.append({"feature": "RSI", "importance": rsi_importance})
         
         # 에이전트 2: MACD 기반 (추세)
         macd = features.get("MACD", 0.0)
@@ -291,17 +291,23 @@ class ModelLoader:
             votes.append(-1)  # 매도
         else:
             votes.append(0)  # 보유
-        xai_importance.append({"feature": "MACD", "importance": abs(macd - macd_signal) / max(abs(macd), 1)})
+        # MACD importance: normalized crossover magnitude (0-1 range)
+        macd_diff = abs(macd - macd_signal)
+        macd_importance = min(macd_diff / (abs(macd_diff) + 1.0), 1.0)
+        xai_importance.append({"feature": "MACD", "importance": macd_importance})
         
         # 에이전트 3: VIX 기반 (변동성/공포)
         vix = features.get("VIX", 15.0)
+        vix_baseline = 22.5  # VIX 중립점 (15~30의 중간)
         if vix > 30:
             votes.append(-1)  # 매도 (공포 구간)
         elif vix < 15:
             votes.append(1)  # 매수 (안정 구간)
         else:
             votes.append(0)  # 보유
-        xai_importance.append({"feature": "VIX", "importance": abs(vix - 20) / 20})
+        # VIX importance: deviation from baseline normalized to 0-1 range
+        vix_importance = min(abs(vix - vix_baseline) / vix_baseline, 1.0) if vix_baseline != 0 else 0.0
+        xai_importance.append({"feature": "VIX", "importance": vix_importance})
         
         vote_sum = sum(votes)  # -3 ~ +3 범위
         
