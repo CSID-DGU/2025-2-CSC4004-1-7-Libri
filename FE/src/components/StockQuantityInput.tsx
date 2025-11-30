@@ -23,12 +23,14 @@ interface StockQuantityInputProps {
     onBack?: () => void;
     onSubmit: (quantity: string) => void;
     initialValue?: string;
+    title?: string;
 }
 
 export default function StockQuantityInput({
     onBack,
     onSubmit,
     initialValue = "",
+    title = "시작하기",
 }: StockQuantityInputProps) {
     const [quantity, setQuantity] = useState(initialValue);
 
@@ -52,7 +54,7 @@ export default function StockQuantityInput({
     return (
         <div className="bg-white relative size-full min-h-screen" data-name="온보딩">
             <div className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px]">
-                <Header title="시작하기" onBack={onBack} />
+                <Header title={title} onBack={onBack} />
 
                 <div
                     className="flex w-full flex-col px-0 py-4"

@@ -22,12 +22,14 @@ interface StockNameProps {
     onSubmit: (stockName: string) => void;
     onBack?: () => void;
     initialValue?: string;
+    title?: string;
 }
 
 export default function StockNameScreen({
     onSubmit,
     onBack,
     initialValue = "",
+    title = "시작하기",
 }: StockNameProps) {
     const [stockInput, setStockInput] = useState(initialValue);
 
@@ -46,7 +48,7 @@ export default function StockNameScreen({
     return (
         <div className="bg-white relative size-full min-h-screen" data-name="온보딩">
             <div className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px]">
-                <Header title="시작하기" onBack={onBack} />
+                <Header title={title} onBack={onBack} />
 
                 <div
                     className="flex w-full flex-col px-0 py-4"
