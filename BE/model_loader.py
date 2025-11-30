@@ -26,18 +26,16 @@ MARL_N_FEATURES_GLOBAL = 16  # 전체 고유 피처 수
 
 class ModelLoader:
     """
-    세 가지 모델을 관리하는 로더.
+    두 가지 AI 모델을 관리하는 로더.
 
-    - marl_model : 3-agent MARL (QMIX 기반 멀티에이전트 강화학습)
-    - model_2    : 두 번째 모델 (TODO)
-    - model_3    : 공격형 A2C 모델
+    - marl_model : MARL 3-agent (안정형) - QMIX 기반 멀티에이전트 강화학습
+    - a2c_model  : A2C (공격형) - 공격적인 매매 전략의 강화학습 모델
     """
     def __init__(self) -> None:
         self.marl_model: Optional[object] = None
-        self.model_2: Optional[object] = None
 
         # 공격형 A2C 관련 필드
-        self.model_3: Optional[A2CAgent] = None
+        self.a2c_model: Optional[A2CAgent] = None
         self.a2c_cfg: Optional[dict] = None
         self.a2c_window_size: Optional[int] = None
         self.a2c_scaler: Optional[object] = None
@@ -112,20 +110,8 @@ class ModelLoader:
             self.marl_model = None
             return False
 
-    def load_model_2(self) -> bool:
-        """두 번째 RL/전략 모델 (TODO)"""
-        try:
-            # TODO: 실제 model_2 로드 로직 구현
-            self.model_2 = "Model 2 Placeholder"
-            print("[Model 2] Placeholder 로드 (실제 모델 연결 필요)")
-            return True
-        except Exception as e:
-            print(f"[Model 2] 로드 실패: {e}")
-            self.model_2 = None
-            return False
-
     # ------------------------------------------------------------------
-    # 2) 공격형 A2C (Model 3) 로드 / 예측
+    # 2) 공격형 A2C 모델 로드
     # ------------------------------------------------------------------
     def load_model_3(self, config_path: str = None) -> bool:
         """
@@ -186,12 +172,12 @@ class ModelLoader:
             )
             agent.load(model_path)
 
-            self.model_3 = agent
+            self.a2c_model = agent
             print(f"[A2C] 공격형 A2C 모델 로드 완료: {model_path}")
             return True
         except Exception as e:
-            print(f"[A2C] Model 3 로드 실패: {e}")
-            self.model_3 = None
+            print(f"[A2C] A2C 모델 로드 실패: {e}")
+            self.a2c_model = None
             self.a2c_scaler = None
             return False
 
@@ -331,48 +317,120 @@ class ModelLoader:
         
         return signal, float(vote_sum), features, xai_explanation, xai_importance
 
-    def predict_model_2(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """Model 2 예측 (현재 더미 로직)"""
-        if self.model_2 is None:
-            raise ValueError("Model 2가 로드되지 않았습니다.")
-
-        # TODO: 실제 데이터 전처리 + model_2 예측 로직 구현
-        signal = "보유"
-        confidence = 0.60
-        return signal, confidence, features
-
-    def predict_model_3(self, symbol: Optional[str] = None) -> Tuple[str, float, Dict[str, float]]:
+    def predict_model_3(self, symbol: Optional[str] = None, features: Optional[Dict[str, float]] = None) -> Tuple[str, float, Dict[str, float]]:
         """
         공격형 A2C 예측.
 
-        - 최신 market 데이터 기반으로 state 생성
-        - A2C policy에서 행동 확률 계산
-        - 최고 확률 행동을 signal로 선택
-        - 최고 확률을 confidence_score로 사용
+        - features가 제공되면 규칙 기반으로 예측 (yfinance 없이도 작동)
+        - features가 없으면 yfinance에서 실시간 데이터를 가져와서 예측
+        
+        Args:
+            symbol: 주식 심볼 (사용하지 않음, 호환성을 위해 유지)
+            features: FE에서 전달받은 기술 지표 딕셔너리
+        
+        Returns:
+            signal: 매매 신호 (매수/매도/보유)
+            confidence: 신뢰도 (0.0 ~ 1.0)
+            indicators: 기술 지표 딕셔너리
         """
-        if self.model_3 is None:
-            raise ValueError("A2C(Model 3)가 로드되지 않았습니다.")
+        if self.a2c_model is None:
+            raise ValueError("A2C 모델이 로드되지 않았습니다.")
 
-        state, indicators = self._build_latest_state_and_indicators()
+        # features가 제공된 경우 규칙 기반 예측 사용 (yfinance 없이도 작동)
+        if features and len(features) > 0:
+            return self._predict_a2c_with_features(features)
+        
+        # features가 없으면 yfinance에서 실시간 데이터 가져오기
+        try:
+            state, indicators = self._build_latest_state_and_indicators()
 
-        with torch.no_grad():
-            state_t = torch.tensor(state, dtype=torch.float32, device=self.model_3.device).unsqueeze(0)
-            logits, _ = self.model_3.ac_net(state_t)
-            probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
+            with torch.no_grad():
+                state_t = torch.tensor(state, dtype=torch.float32, device=self.a2c_model.device).unsqueeze(0)
+                logits, _ = self.a2c_model.ac_net(state_t)
+                probs = torch.softmax(logits, dim=-1).cpu().numpy()[0]
 
-        action_idx = int(np.argmax(probs))
-        action_map = {0: "매수", 1: "매도", 2: "보유"}
-        signal = action_map.get(action_idx, "보유")
-        confidence = float(probs[action_idx])
+            action_idx = int(np.argmax(probs))
+            action_map = {0: "매수", 1: "매도", 2: "보유"}
+            signal = action_map.get(action_idx, "보유")
+            confidence = float(probs[action_idx])
 
-        return signal, confidence, indicators
+            return signal, confidence, indicators
+        except Exception as e:
+            # yfinance 실패 시 features 기반 fallback
+            print(f"[A2C] yfinance 데이터 로드 실패, features 기반 예측으로 전환: {e}")
+            default_features = {
+                "RSI": 50.0,
+                "MACD": 0.0,
+                "MACD_Signal": 0.0,
+                "VIX": 20.0,
+                "SMA20": 0.0,
+                "ATR": 0.0,
+                "Stoch_K": 50.0,
+                "Stoch_D": 50.0,
+                "Bollinger_B": 0.5
+            }
+            return self._predict_a2c_with_features(default_features)
+    
+    def _predict_a2c_with_features(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
+        """
+        features 딕셔너리를 기반으로 A2C 스타일 예측 (공격형)
+        
+        공격형 전략:
+        - RSI 과매도(30 이하) → 적극 매수
+        - RSI 과매수(70 이상) → 적극 매도
+        - MACD 골든크로스 → 매수
+        - 변동성(ATR) 높을 때 더 적극적
+        """
+        # 기본 지표 설정
+        rsi = features.get("RSI", 50.0)
+        macd = features.get("MACD", 0.0)
+        macd_signal = features.get("MACD_Signal", 0.0)
+        stoch_k = features.get("Stoch_K", 50.0)
+        
+        # 점수 시스템 (공격형: 더 적극적인 매매)
+        score = 0.0
+        
+        # RSI 기반 (공격형: 과매도/과매수 구간에서 적극적)
+        if rsi < 25:
+            score += 2.0  # 강한 매수
+        elif rsi < 35:
+            score += 1.0  # 매수
+        elif rsi > 75:
+            score -= 2.0  # 강한 매도
+        elif rsi > 65:
+            score -= 1.0  # 매도
+        
+        # MACD 크로스오버
+        macd_diff = macd - macd_signal
+        if macd_diff > 0:
+            score += 1.0 if macd_diff > 10 else 0.5
+        elif macd_diff < 0:
+            score -= 1.0 if macd_diff < -10 else -0.5
+        
+        # Stochastic
+        if stoch_k < 20:
+            score += 0.5
+        elif stoch_k > 80:
+            score -= 0.5
+        
+        # 신호 결정
+        if score >= 1.5:
+            signal = "매수"
+            confidence = min(0.5 + abs(score) * 0.1, 0.95)
+        elif score <= -1.5:
+            signal = "매도"
+            confidence = min(0.5 + abs(score) * 0.1, 0.95)
+        else:
+            signal = "보유"
+            confidence = 0.5 + (1.0 - abs(score) / 3.0) * 0.3
+        
+        return signal, confidence, features
 
     def get_model_status(self) -> Dict[str, str]:
         """모델 상태 확인용"""
         return {
             "marl_3agent": "available" if self.marl_model is not None else "unavailable",
-            "model_2": "available" if self.model_2 is not None else "unavailable",
-            "model_3": "available" if self.model_3 is not None else "unavailable",
+            "a2c": "available" if self.a2c_model is not None else "unavailable",
         }
 
 

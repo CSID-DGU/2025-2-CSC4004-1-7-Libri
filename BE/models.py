@@ -75,8 +75,7 @@ class HealthCheckResponse(BaseModel):
 
 class ModelStatusResponse(BaseModel):
     marl_3agent: str
-    model_2: str
-    model_3: str
+    a2c: str
 
 class ModelInfo(BaseModel):
     id: str
