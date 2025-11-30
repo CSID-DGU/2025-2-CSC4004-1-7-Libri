@@ -151,11 +151,71 @@ html {
     font-size: var(--font-size);
 }
 
+/* Color helper classes */
+.component-main {
+    color: var(--component-main);
+}
+
+.component-red {
+    color: var(--component-red);
+}
+
+.component-blue {
+    color: var(--component-blue);
+}
+
+.component-background {
+    color: var(--component-background);
+}
+
+.achromatic-800 {
+    color: var(--achromatic-800);
+}
+
+.achromatic-700 {
+    color: var(--achromatic-700);
+}
+
+.achromatic-600 {
+    color: var(--achromatic-600);
+}
+
+.achromatic-500 {
+    color: var(--achromatic-500);
+}
+
+.achromatic-400 {
+    color: var(--achromatic-400);
+}
+
+.achromatic-300 {
+    color: var(--achromatic-300);
+}
+
+.achromatic-200 {
+    color: var(--achromatic-200);
+}
+
+.achromatic-100 {
+    color: var(--achromatic-100);
+}
+
+.placeholder-achromatic-500::placeholder {
+    color: var(--achromatic-500);
+}
+
+.placeholder-body-2::placeholder {
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    line-height: 145%;
+}
+
 /* 텍스트 스타일 */
 .display-1 {
     font-size: 28px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0em;
     line-height: 170%;
 }
@@ -163,7 +223,7 @@ html {
 .heading-1 {
     font-size: 24px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0em;
     line-height: 165%;
 }
@@ -171,7 +231,7 @@ html {
 .title-1 {
     font-size: 21px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0em;
     line-height: 160%;
 }
@@ -179,7 +239,7 @@ html {
 .title-2 {
     font-size: 18px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0em;
     line-height: 155%;
 }
@@ -187,7 +247,7 @@ html {
 .title-3 {
     font-size: 16px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.01em;
     line-height: 150%;
 }
@@ -195,7 +255,7 @@ html {
 .title-4 {
     font-size: 14px;
     font-family: var(--font-family-base);
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.01em;
     line-height: 145%;
 }
@@ -203,7 +263,7 @@ html {
 .body-1 {
     font-size: 16px;
     font-family: var(--font-family-base);
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.01em;
     line-height: 150%;
 }
@@ -211,7 +271,7 @@ html {
 .body-2 {
     font-size: 14px;
     font-family: var(--font-family-base);
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.01em;
     line-height: 145%;
 }
@@ -219,7 +279,7 @@ html {
 .body-3 {
     font-size: 12px;
     font-family: var(--font-family-base);
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.02em;
     line-height: 150%;
 }
@@ -227,7 +287,7 @@ html {
 .label-1 {
     font-size: 14px;
     font-family: var(--font-family-base);
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.01em;
     line-height: 145%;
 }
@@ -235,7 +295,7 @@ html {
 .label-2 {
     font-size: 12px;
     font-family: var(--font-family-base);
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.02em;
     line-height: 150%;
 }
@@ -243,7 +303,7 @@ html {
 .label-3 {
     font-size: 11px;
     font-family: var(--font-family-base);
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.02em;
     line-height: 145%;
 }
@@ -251,7 +311,7 @@ html {
 .label-4 {
     font-size: 10px;
     font-family: var(--font-family-base);
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.02em;
     line-height: 145%;
 }
