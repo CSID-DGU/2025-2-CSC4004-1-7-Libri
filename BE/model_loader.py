@@ -32,7 +32,9 @@ class ModelLoader:
     - a2c_model  : A2C (공격형) - 공격적인 매매 전략의 강화학습 모델
     """
     def __init__(self) -> None:
+        # MARL 3-agent 관련 필드
         self.marl_model: Optional[object] = None
+        self.marl_scalers: Optional[dict] = None
 
         # 공격형 A2C 관련 필드
         self.a2c_model: Optional[A2CAgent] = None
@@ -97,6 +99,7 @@ class ModelLoader:
             self.marl_model = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
 
             model_path = os.path.join(marl_dir, "best_model.pth")
+            scaler_path = os.path.join(marl_dir, "scalers.pkl")
 
             if os.path.exists(model_path):
                 self.marl_model.load_state_dict(torch.load(model_path, map_location=DEVICE))
@@ -104,10 +107,21 @@ class ModelLoader:
             else:
                 print(f"[MARL] 경고: {model_path} 를 찾을 수 없습니다. 초기화된 모델 사용")
 
+            # MARL scaler 로드
+            if os.path.exists(scaler_path):
+                import pickle
+                with open(scaler_path, 'rb') as f:
+                    self.marl_scalers = pickle.load(f)
+                print(f"[MARL] scalers.pkl 로드 완료: {scaler_path}")
+            else:
+                print(f"[MARL] 경고: {scaler_path} 를 찾을 수 없습니다. scaler 없이 진행")
+                self.marl_scalers = None
+
             return True
         except Exception as e:
             print(f"[MARL] 모델 로드 실패: {e}")
             self.marl_model = None
+            self.marl_scalers = None
             return False
 
     # ------------------------------------------------------------------
