@@ -72,11 +72,11 @@ async def get_models_list(authenticated: bool = Depends(verify_api_key)):
     
     models = [
         ModelInfo(
-            id="marl_4agent",
-            name="MARL 4-Agent",
-            description="4개 에이전트 기반 멀티 에이전트 강화학습 모델 (단기/장기/위험/감성)",
+            id="marl_3agent",
+            name="MARL 3-Agent",
+            description="3개 에이전트 기반 멀티 에이전트 강화학습 모델 (모멘텀/추세/변동성)",
             endpoint="/predict/marl",
-            status=status["marl_4agent"]
+            status=status["marl_3agent"]
         ),
         ModelInfo(
             id="model_2",
@@ -102,12 +102,12 @@ async def predict_marl(
     db: Session = Depends(get_db),
     authenticated: bool = Depends(verify_api_key)
 ):
-    """MARL 4-agent 모델 예측 (XAI 포함)"""
+    """MARL 3-agent 모델 예측 (XAI 포함)"""
     try:
         signal, vote_sum, indicators, xai_explanation, xai_importance = model_loader.predict_marl(data.features)
         
-        # vote_sum을 confidence_score로 변환 (-4~4 -> 0.0~1.0)
-        confidence = (abs(vote_sum) / 4.0) * 0.5 + 0.5
+        # vote_sum을 confidence_score로 변환 (-3~3 -> 0.0~1.0)
+        confidence = (abs(vote_sum) / 3.0) * 0.5 + 0.5
         
         # GPT 해석
         gpt_explanation = await interpret_model_output(signal, indicators)
@@ -132,7 +132,7 @@ async def predict_marl(
         db.commit()
         
         return ModelPredictionResponse(
-            model_type="marl_4agent",
+            model_type="marl_3agent",
             signal=signal,
             confidence_score=confidence,
             technical_indicators=indicators,

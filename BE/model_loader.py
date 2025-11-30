@@ -38,27 +38,73 @@ class ModelLoader:
         self.a2c_device: str = "cpu"
 
     # ------------------------------------------------------------------
-    # 1) MARL 4-agent (기존 더미/임시)
+    # 1) MARL 3-agent (marl_3agent 폴더 사용)
     # ------------------------------------------------------------------
     def load_marl_model(self) -> bool:
-        """MARL 4-agent 모델 로드 (현재는 기존 코드 유지)"""
+        """MARL 3-agent 모델 로드"""
         try:
-            sys.path.append(os.path.abspath(os.path.join(BASE_DIR, "..", "AI", "marl_4agent")))
-            from qmix_model import QMIX_Learner  # type: ignore
-            from config import DEVICE, N_AGENTS  # marl_4agent 쪽 config
+            import importlib.util
+            
+            marl_dir = os.path.abspath(os.path.join(BASE_DIR, "..", "AI", "marl_3agent"))
+            
+            # marl_3agent의 config.py를 명시적으로 로드
+            marl_config_path = os.path.join(marl_dir, "config.py")
+            spec = importlib.util.spec_from_file_location("marl_config", marl_config_path)
+            marl_config = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(marl_config)
+            
+            DEVICE = marl_config.DEVICE
+            N_AGENTS = marl_config.N_AGENTS
+            WINDOW_SIZE = marl_config.WINDOW_SIZE
+            
+            # marl_3agent 폴더를 path에 추가 (qmix_model import용)
+            if marl_dir not in sys.path:
+                sys.path.insert(0, marl_dir)
+            
+            # BE의 config가 sys.modules에 캐시되어 있으면 임시로 제거
+            # (qmix_model.py가 from config import ...를 사용하기 때문)
+            be_config = sys.modules.get('config')
+            if be_config is not None:
+                del sys.modules['config']
+            
+            # marl_3agent의 config를 sys.modules에 등록
+            sys.modules['config'] = marl_config
+            
+            try:
+                from qmix_model import QMIX_Learner  # type: ignore
+            finally:
+                # BE의 config 복구
+                if be_config is not None:
+                    sys.modules['config'] = be_config
 
-            obs_dims_list = [40, 40, 40, 40]  # TODO: 실제 값으로 수정
+            # 각 에이전트별 피처 수 (data_processor.py 참조)
+            # agent_0: Close, High, Low, Volume + RSI, Stoch_K, Stoch_D, ATR, Bollinger_B = 9개
+            # agent_1: Close, High, Low, Volume + SMA20, MACD, MACD_Signal = 7개
+            # agent_2: Close, High, Low, Volume + VIX, ROA, DebtRatio, AnalystRating = 8개
+            n_features_agent_0 = 9
+            n_features_agent_1 = 7
+            n_features_agent_2 = 8
+            n_features_global = 16  # 전체 피처 수 (중복 제거: 16개)
+            
+            # obs_dim = window_size * n_features + 2 (position + unrealized_return)
+            obs_dim_0 = WINDOW_SIZE * n_features_agent_0 + 2  # 10 * 9 + 2 = 92
+            obs_dim_1 = WINDOW_SIZE * n_features_agent_1 + 2  # 10 * 7 + 2 = 72
+            obs_dim_2 = WINDOW_SIZE * n_features_agent_2 + 2  # 10 * 8 + 2 = 82
+            
+            obs_dims_list = [obs_dim_0, obs_dim_1, obs_dim_2]  # [92, 72, 82]
             action_dim = 3
-            state_dim = 160
+            
+            # state_dim = window_size * n_features_global + (n_agents * 2)
+            # 10 * 16 + (3 * 2) = 160 + 6 = 166
+            state_dim = WINDOW_SIZE * n_features_global + (N_AGENTS * 2)
 
             self.marl_model = QMIX_Learner(obs_dims_list, action_dim, state_dim, DEVICE)
 
-            model_path = os.path.join(BASE_DIR, "..", "AI", "marl_4agent", "saved_model.pth")
-            model_path = os.path.abspath(model_path)
+            model_path = os.path.join(marl_dir, "best_model.pth")
 
             if os.path.exists(model_path):
                 self.marl_model.load_state_dict(torch.load(model_path, map_location=DEVICE))
-                print(f"[MARL] saved_model.pth 로드 완료: {model_path}")
+                print(f"[MARL] best_model.pth 로드 완료: {model_path}")
             else:
                 print(f"[MARL] 경고: {model_path} 를 찾을 수 없습니다. 초기화된 모델 사용")
 
@@ -188,15 +234,96 @@ class ModelLoader:
 
         return state, indicators
 
-    def predict_marl(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
-        """MARL 4-agent 모델 예측 (현재 더미 로직)"""
+    def predict_marl(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float], Optional[str], Optional[list]]:
+        """
+        MARL 3-agent 모델 예측
+        
+        Returns:
+            signal: 매매 신호 (매수/매도/보유)
+            vote_sum: 에이전트 투표 합계 (-3 ~ +3)
+            indicators: 기술 지표 딕셔너리
+            xai_explanation: XAI 설명 문자열
+            xai_importance: 피처 중요도 리스트
+        """
         if self.marl_model is None:
             raise ValueError("MARL 모델이 로드되지 않았습니다.")
 
-        # TODO: 실제 데이터 전처리 + MARL 예측 로직 구현
-        signal = "매수"
-        confidence = 0.75
-        return signal, confidence, features
+        # features가 비어있으면 기본 지표 생성
+        if not features:
+            features = {
+                "SMA20": 0.0,
+                "MACD": 0.0,
+                "MACD_Signal": 0.0,
+                "RSI": 50.0,
+                "Stoch_K": 50.0,
+                "Stoch_D": 50.0,
+                "ATR": 0.0,
+                "Bollinger_B": 0.5,
+                "VIX": 15.0,
+                "ROA": 0.0,
+                "DebtRatio": 0.0,
+                "AnalystRating": 3.0
+            }
+
+        # 3-agent 투표 시스템 시뮬레이션
+        # 실제 구현에서는 MARL 모델을 사용하여 각 에이전트의 행동을 결정
+        # 현재는 기술 지표 기반 규칙으로 투표 시뮬레이션
+        
+        votes = []
+        xai_importance = []
+        
+        # 에이전트 1: RSI 기반 (모멘텀)
+        rsi = features.get("RSI", 50.0)
+        if rsi < 30:
+            votes.append(1)  # 매수
+        elif rsi > 70:
+            votes.append(-1)  # 매도
+        else:
+            votes.append(0)  # 보유
+        xai_importance.append({"feature": "RSI", "importance": abs(rsi - 50) / 50})
+        
+        # 에이전트 2: MACD 기반 (추세)
+        macd = features.get("MACD", 0.0)
+        macd_signal = features.get("MACD_Signal", 0.0)
+        if macd > macd_signal:
+            votes.append(1)  # 매수
+        elif macd < macd_signal:
+            votes.append(-1)  # 매도
+        else:
+            votes.append(0)  # 보유
+        xai_importance.append({"feature": "MACD", "importance": abs(macd - macd_signal) / max(abs(macd), 1)})
+        
+        # 에이전트 3: VIX 기반 (변동성/공포)
+        vix = features.get("VIX", 15.0)
+        if vix > 30:
+            votes.append(-1)  # 매도 (공포 구간)
+        elif vix < 15:
+            votes.append(1)  # 매수 (안정 구간)
+        else:
+            votes.append(0)  # 보유
+        xai_importance.append({"feature": "VIX", "importance": abs(vix - 20) / 20})
+        
+        vote_sum = sum(votes)  # -3 ~ +3 범위
+        
+        # 투표 결과를 신호로 변환
+        if vote_sum > 0:
+            signal = "매수"
+        elif vote_sum < 0:
+            signal = "매도"
+        else:
+            signal = "보유"
+        
+        # XAI 설명 생성
+        agent_decisions = ["매수" if v > 0 else ("매도" if v < 0 else "보유") for v in votes]
+        xai_explanation = (
+            f"3개 에이전트 투표 결과: "
+            f"모멘텀 에이전트({agent_decisions[0]}), "
+            f"추세 에이전트({agent_decisions[1]}), "
+            f"변동성 에이전트({agent_decisions[2]}). "
+            f"총 투표 합계: {vote_sum:+d}점"
+        )
+        
+        return signal, float(vote_sum), features, xai_explanation, xai_importance
 
     def predict_model_2(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
         """Model 2 예측 (현재 더미 로직)"""
@@ -237,7 +364,7 @@ class ModelLoader:
     def get_model_status(self) -> Dict[str, str]:
         """모델 상태 확인용"""
         return {
-            "marl_4agent": "available" if self.marl_model is not None else "unavailable",
+            "marl_3agent": "available" if self.marl_model is not None else "unavailable",
             "model_2": "available" if self.model_2 is not None else "unavailable",
             "model_3": "available" if self.model_3 is not None else "unavailable",
         }
