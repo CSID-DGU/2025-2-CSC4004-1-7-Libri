@@ -236,6 +236,7 @@ export default function App() {
                         onSubmit={handleAddStockName}
                         onBack={() => goBack("home")}
                         initialValue={state.addStockForm.stockName}
+                        title="종목 추가"
                     />
                 )}
                 {state.currentPage === "add-quantity" && (
@@ -244,6 +245,7 @@ export default function App() {
                         onBack={() => goBack("add-stock")}
                         onSubmit={handleAddStockQuantity}
                         initialValue={state.addStockForm.quantity}
+                        title="종목 추가"
                     />
                 )}
                 {state.currentPage === "add-price" && (
@@ -251,6 +253,7 @@ export default function App() {
                         onBack={() => goBack("add-quantity")}
                         onSubmit={handleAddStockPrice}
                         initialValue={state.addStockForm.price}
+                        title="종목 추가"
                     />
                 )}
             </InvestmentStyleProvider>
