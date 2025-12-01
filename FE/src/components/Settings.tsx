@@ -18,7 +18,11 @@ const menus: MenuItem[] = [
 ];
 
 function Divider() {
-    return <div className="h-px w-full bg-[#ebecef]" />;
+    return (
+        <div className="px-[20px]">
+            <div className="h-px w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
+        </div>
+    );
 }
 
 function MenuButton({ label, onClick }: { label: string; onClick: () => void }) {
@@ -30,7 +34,7 @@ function MenuButton({ label, onClick }: { label: string; onClick: () => void }) 
             style={{ paddingInline: "20px", paddingBlock: "20px" }}
         >
             <span className="title-3 text-[#151b26]">{label}</span>
-            <SmallCaretRightIcon className="h-5 w-5 text-[#c9cbd0]" />
+            <SmallCaretRightIcon className="h-5 w-5 text-[#151b26]" />
         </button>
     );
 }
