@@ -1,22 +1,16 @@
-import { default as CaretLeftIcon } from "@/assets/icons/caret-left.svg?react";
-import { default as AiSparkIcon } from "@/assets/icons/AI.svg?react";
-import { default as InfoIcon } from "@/assets/icons/info.svg?react";
 import { useEffect, useRef, useState } from "react";
-import { useInvestmentStyle } from "../contexts/InvestmentStyleContext";
+import Header from "@/components/layout/Header";
+import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
+import AiSparkIcon from "@/assets/icons/AI.svg?react";
+import InfoIcon from "@/assets/icons/info.svg?react";
+import CrownIcon from "@/assets/icons/crown.svg?react";
 import { createChart } from "lightweight-charts";
 import IndicatorModal from "./IndicatorModal";
 import { getIndicatorsByStyle } from "../data/indicatorsByStyle";
-import { type InvestmentStyle } from "../contexts/InvestmentStyleContext";
+import { type InvestmentStyle, useInvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
-import {
-    validateAPIResponse,
-    getDefaultAIData,
-    validateModelType,
-    getErrorMessage,
-    retryWithBackoff,
-} from "../utils/dataValidation";
 
-type TabType = "analysis" | "trading";
+export type TabType = "top3" | "analysis" | "trading";
 
 interface IndicatorInfo {
     title: string;
@@ -25,644 +19,12 @@ interface IndicatorInfo {
     interpretationPoints: string[];
 }
 
-const indicatorData: Record<string, IndicatorInfo> = {
-    "EMA 12": {
-        title: "EMA 12",
-        description: "단기 흐름이 장기 흐름보다 강해지며, 최근 주가가 상승세를 타고 있습니다.",
-        fullDescription:
-            "EMA(지수이동평균선)은 최근 가격에 더 큰 비중을 두고 계산한 평균선이에요. 숫자(12)는 12일 동안의 평균을 의미합니다.",
-        interpretationPoints: [
-            "단기(EMA12)가 장기(EMA26)를 뚫으면 상승 신호",
-            "반대로 내려가면 하락 신호",
-        ],
-    },
-    "EMA 26": {
-        title: "EMA 26",
-        description: "장기 추세를 나타내며, 현재 안정적인 상승세를 보이고 있습니다.",
-        fullDescription:
-            "EMA(지수이동평균선)은 최근 가격에 더 큰 비중을 두고 계산한 평균선이에요. 숫자(26)는 26일 동안의 평균을 의미합니다.",
-        interpretationPoints: [
-            "장기 추세를 확인하는 지표로 활용",
-            "EMA12와 함께 보면서 추세 전환 시점 파악",
-        ],
-    },
-    MACD: {
-        title: "MACD",
-        description: "MACD가 시그널선을 하향 돌파하며 매도 신호가 강화되고 있습니다.",
-        fullDescription:
-            "MACD(이동평균수렴확산)는 단기와 장기 이동평균선의 차이를 이용한 추세 추종 지표입니다. 추세의 방향과 강도를 동시에 파악할 수 있어요.",
-        interpretationPoints: [
-            "MACD선이 시그널선을 상향 돌파하면 매수 신호",
-            "MACD선이 시그널선을 하향 돌파하면 매도 신호",
-            "0선 위에 있으면 상승 추세, 아래면 하락 추세",
-        ],
-    },
-    거래량: {
-        title: "거래량",
-        description: "거래량이 평균 대비 증가하며 추세에 대한 시장 참여도가 높습니다.",
-        fullDescription:
-            "거래량은 특정 기간 동안 거래된 주식의 수량을 나타냅니다. 가격 변동과 함께 분석하면 추세의 신뢰도를 확인할 수 있어요.",
-        interpretationPoints: [
-            "상승과 함께 거래량 증가는 강한 상승 신호",
-            "하락과 함께 거래량 증가는 강한 하락 신호",
-            "거래량 없는 가격 변동은 신뢰도가 낮음",
-        ],
-    },
-    KOSPI: {
-        title: "KOSPI",
-        description:
-            "시장 지수 대비 상대적으로 강세를 보이며, 시장 평균보다 높은 상승 탄력을 유지하고 있습니다.",
-        fullDescription:
-            "KOSPI는 한국 종합주가지수로, 전체 시장의 흐름을 나타냅니다. 개별 종목이 시장 대비 얼마나 강한지 비교할 수 있어요.",
-        interpretationPoints: [
-            "시장이 상승하는데 종목도 상승하면 강세",
-            "시장이 하락하는데 종목이 상승하면 매우 강세",
-            "시장 대비 상대적 강도로 투자 판단",
-        ],
-    },
-    SMA20: {
-        title: "SMA20",
-        description: "현재 주가가 장기 이동평균선을 상회하며 중기적 상승 추세를 유지하고 있어요.",
-        fullDescription:
-            "SMA(단순이동평균선)는 일정 기간 동안의 종가를 산술 평균한 값입니다. 20일 평균은 중기 추세를 나타내요.",
-        interpretationPoints: [
-            "주가가 SMA20 위에 있으면 상승 추세",
-            "주가가 SMA20 아래로 떨어지면 하락 신호",
-            "장기 투자 시 중요한 지지/저항선으로 활용",
-        ],
-    },
-    RSI: {
-        title: "RSI",
-        description: "RSI가 과매수 구간(70 이상)에 진입하여 단기 조정 가능성이 있습니다.",
-        fullDescription:
-            "RSI(상대강도지수)는 가격의 상승과 하락 강도를 비교하여 과매수/과매도 상태를 판단하는 지표입니다. 0~100 사이의 값을 가져요.",
-        interpretationPoints: [
-            "RSI 70 이상은 과매수 구간, 조정 가능성",
-            "RSI 30 이하는 과매도 구간, 반등 가능성",
-            "50을 기준으로 상승/하락 추세 판단",
-        ],
-    },
-    "STOCH_%K": {
-        title: "STOCH_%K",
-        description: "스토캐스틱이 과매수 구간에서 하락 전환하며 단기 조정 신호를 보이고 있습니다.",
-        fullDescription:
-            "스토캐스틱은 일정 기간 동안의 가격 변동 폭 중 현재 가격의 위치를 백분율로 나타낸 지표입니다. 과매수/과매도를 빠르게 포착해요.",
-        interpretationPoints: [
-            "%K가 80 이상에서 하락 전환하면 매도 신호",
-            "%K가 20 이하에서 상승 전환하면 매수 신호",
-            "%K와 %D의 교차로 매매 타이밍 포착",
-        ],
-    },
-};
-
-function CaretLeft() {
-    return (
-        <div className="relative shrink-0 size-[24px]" data-name="caret-left">
-            <CaretLeftIcon style={{ color: "var(--achromatic-600)" }} />
-        </div>
-    );
-}
-
-function BackButton({ onClick }: { onClick: () => void }) {
-    return (
-        <button
-            onClick={onClick}
-            className="box-border content-stretch flex gap-[10px] items-center p-[4px] relative shrink-0"
-            data-name="상단 헤더 좌측 버튼"
-        >
-            <CaretLeft />
-        </button>
-    );
-}
-
-function Frame7({ onBack }: { onBack: () => void }) {
-    return (
-        <div className="content-stretch flex gap-[10px] items-center relative shrink-0 w-[68px]">
-            <BackButton onClick={onBack} />
-        </div>
-    );
-}
-
-function Component1({ stockName }: { stockName: string }) {
-    return (
-        <div className="basis-0 grow min-h-px min-w-px relative shrink-0" data-name="헤더 타이틀">
-            <div className="flex flex-row items-center justify-center size-full">
-                <div className="box-border content-stretch flex gap-[10px] items-center justify-center px-[4px] py-[2px] relative w-full">
-                    <div className="basis-0 flex flex-col grow justify-center leading-[0] min-h-px min-w-px not-italic overflow-ellipsis overflow-hidden relative shrink-0 text-[#151b26] text-center text-nowrap onboarding-top">
-                        <p className="[white-space-collapse:collapse] leading-[1.55] overflow-ellipsis overflow-hidden">
-                            {stockName}
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame1() {
-    return <div className="shrink-0 size-[32px]" />;
-}
-
-function Frame2() {
-    return (
-        <div className="box-border content-stretch flex gap-[10px] items-center justify-center p-[4px] shrink-0" />
-    );
-}
-
-function Component2() {
-    return (
-        <div
-            className="content-stretch flex gap-[4px] items-center justify-end relative shrink-0"
-            data-name="상단 헤더 우측 버튼"
-        >
-            <Frame1 />
-            <Frame2 />
-        </div>
-    );
-}
-
-function Frame8({ stockName, onBack }: { stockName: string; onBack: () => void }) {
-    return (
-        <div className="absolute content-stretch flex items-center justify-center left-[16px] right-[16px] top-1/2 translate-y-[-50%]">
-            <Frame7 onBack={onBack} />
-            <Component1 stockName={stockName} />
-            <Component2 />
-        </div>
-    );
-}
-
-function Component3({ stockName, onBack }: { stockName: string; onBack: () => void }) {
-    return (
-        <div className="h-[58px] relative shrink-0 w-[375px]" data-name="상단 헤더">
-            <Frame8 stockName={stockName} onBack={onBack} />
-        </div>
-    );
-}
-
-function Frame48({ recommendation }: { recommendation: string }) {
-    return (
-        <div className="basis-0 content-stretch flex flex-col gap-[4px] grow items-start leading-[0] min-h-px min-w-px not-italic relative shrink-0 text-center text-nowrap">
-            <div className="flex flex-col justify-center relative shrink-0 text-[#151b26] tracking-[0.24px] stock-recommend-title">
-                <p className="leading-[1.5] text-nowrap whitespace-pre">오늘의 추천 행동</p>
-            </div>
-            <div className="flex flex-col justify-center relative shrink-0 text-[#1fa9a4] tracking-[1.44px] stock-recommend">
-                <p className="leading-[normal] text-nowrap whitespace-pre">{recommendation}</p>
-            </div>
-        </div>
-    );
-}
-
-function Frame88({ recommendation }: { recommendation: string }) {
-    return (
-        <div className="content-stretch flex gap-[20px] items-start relative shrink-0 w-full">
-            <Frame48 recommendation={recommendation} />
-        </div>
-    );
-}
-
-function PriceChart() {
-    const chartContainerRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (!chartContainerRef.current) return;
-
-        // 백엔드에서 받아올 주가 데이터 (Mock 데이터)
-        // 실제로는 API 호출로 데이터를 받아옴
-        const generateMockData = () => {
-            const data = [];
-            const basePrice = 60000;
-            const now = new Date();
-
-            for (let i = 30; i >= 0; i--) {
-                const date = new Date(now);
-                date.setDate(date.getDate() - i);
-                const randomChange = (Math.random() - 0.5) * 3000;
-                const price = basePrice + randomChange + (30 - i) * 100;
-
-                data.push({
-                    time: Math.floor(date.getTime() / 1000) as any,
-                    value: price,
-                });
-            }
-            return data;
-        };
-
-        const chart = createChart(chartContainerRef.current, {
-            layout: {
-                background: { color: "transparent" },
-                textColor: "#1FA9A4",
-            },
-            grid: {
-                vertLines: { visible: false },
-                horzLines: { visible: false },
-            },
-            width: chartContainerRef.current.clientWidth,
-            height: 43,
-            timeScale: {
-                visible: false,
-                borderVisible: false,
-                fixLeftEdge: true,
-                fixRightEdge: true,
-            },
-            rightPriceScale: {
-                visible: false,
-                borderVisible: false,
-            },
-            leftPriceScale: {
-                visible: false,
-                borderVisible: false,
-            },
-            crosshair: {
-                mode: 0,
-            },
-            handleScale: false,
-            handleScroll: false,
-        });
-
-        const lineSeries = chart.addAreaSeries({
-            lineColor: "#1FA9A4",
-            lineWidth: 2,
-            topColor: "transparent",
-            bottomColor: "transparent",
-            priceLineVisible: false,
-            lastValueVisible: false,
-            crosshairMarkerVisible: false,
-        });
-
-        lineSeries.setData(generateMockData());
-
-        // 차트를 왼쪽 끝까지 확장
-        chart.timeScale().fitContent();
-
-        // TradingView 워터마크 제거 - 간소화된 버전
-        const removeWatermark = () => {
-            if (!chartContainerRef.current) return;
-
-            // 워터마크는 보통 작은 크기의 div나 a 태그로 구성됨
-            const allElements = chartContainerRef.current.querySelectorAll("div, a, img");
-            allElements.forEach((el) => {
-                const element = el as HTMLElement;
-                const text = element.textContent?.toLowerCase() || "";
-                const href = (element as HTMLAnchorElement).href || "";
-
-                // TradingView 관련 텍스트나 링크를 포함하는 작은 요소 숨김
-                if (
-                    (text.includes("tradingview") || href.includes("tradingview")) &&
-                    element.offsetHeight < 50
-                ) {
-                    element.style.display = "none";
-                }
-            });
-        };
-
-        // 차트 렌더링 직후와 약간의 지연 후에 워터마크 제거
-        removeWatermark();
-        const timerId = setTimeout(removeWatermark, 100);
-
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                chart.applyOptions({ width: chartContainerRef.current.clientWidth });
-            }
-        };
-
-        window.addEventListener("resize", handleResize);
-
-        return () => {
-            clearTimeout(timerId);
-            window.removeEventListener("resize", handleResize);
-            chart.remove();
-        };
-    }, []);
-
-    return <div ref={chartContainerRef} className="absolute inset-[-2.92%_-0.17%_-3.46%_-0.23%]" />;
-}
-
-function Frame() {
-    return (
-        <div className="box-border content-stretch flex flex-col gap-[10px] items-start px-0 py-[8px] relative shrink-0 w-full">
-            <div className="aspect-[284.59/37.0933] relative shrink-0 w-full">
-                <PriceChart />
-            </div>
-        </div>
-    );
-}
-
-function Component4() {
-    return (
-        <div
-            className="bg-white content-stretch flex h-px items-center justify-center relative shrink-0 w-full"
-            data-name="디바이더"
-        >
-            <div className="basis-0 bg-[#d0d1d4] grow h-[0.5px] min-h-px min-w-px shrink-0" />
-        </div>
-    );
-}
-
-function Ai() {
-    return (
-        <div className="relative shrink-0 size-[24px]" data-name="AI">
-            <AiSparkIcon style={{ color: "var(--achromatic-800)" }} />
-        </div>
-    );
-}
-
-function Frame44() {
-    return (
-        <div className="content-stretch flex gap-[4px] items-center relative shrink-0 w-full">
-            <Ai />
-            <div className="flex flex-col justify-center leading-[0] not-italic relative shrink-0 text-[#151b26] text-center text-nowrap onboarding-top">
-                <p className="leading-[1.55] whitespace-pre">AI 설명</p>
-            </div>
-        </div>
-    );
-}
-
-function Frame49({ aiExplanation }: { aiExplanation: string }) {
-    return (
-        <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
-            <Frame44 />
-            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#151b26] text-[14px] tracking-[0.14px] w-full">
-                <p className="leading-[1.45]">{aiExplanation}</p>
-            </div>
-        </div>
-    );
-}
-
-function Frame45({
-    recommendation,
-    aiExplanation,
-}: {
-    recommendation: string;
-    aiExplanation: string;
-}) {
-    return (
-        <div className="bg-[#f2f4f8] relative rounded-[16px] shrink-0 w-full">
-            <div className="size-full">
-                <div className="box-border content-stretch flex flex-col gap-[20px] items-start p-[20px] relative w-full">
-                    <Frame88 recommendation={recommendation} />
-                    <Frame />
-                    <Component4 />
-                    <Frame49 aiExplanation={aiExplanation} />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame41({
-    recommendation,
-    aiExplanation,
-}: {
-    recommendation: string;
-    aiExplanation: string;
-}) {
-    return (
-        <div className="box-border content-stretch flex flex-col gap-[20px] items-start pb-[24px] pt-[16px] px-[16px] relative shrink-0 w-[375px]">
-            <Frame45 recommendation={recommendation} aiExplanation={aiExplanation} />
-        </div>
-    );
-}
-
-function Frame38({ isActive }: { isActive: boolean }) {
-    return (
-        <div className="content-stretch flex gap-[4px] items-center justify-center relative shrink-0">
-            <div
-                className={`flex flex-col justify-center leading-[0] not-italic overflow-ellipsis overflow-hidden relative shrink-0 text-center text-nowrap tracking-[0.16px] home-stock-name ${
-                    isActive ? "text-[#151b26]" : "text-[#a1a4a8]"
-                }`}
-            >
-                <p className="leading-[1.5] overflow-ellipsis overflow-hidden whitespace-pre">
-                    지표 분석
-                </p>
-            </div>
-        </div>
-    );
-}
-
-function Frame3({ isActive }: { isActive: boolean }) {
-    return (
-        <div className="relative shrink-0 w-full">
-            <div className="flex flex-row items-center justify-center overflow-clip rounded-[inherit] size-full">
-                <div className="box-border content-stretch flex items-center justify-center pb-[4px] pt-[8px] px-[8px] relative w-full">
-                    <Frame38 isActive={isActive} />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame6({ isActive }: { isActive: boolean }) {
-    return (
-        <div className={`h-[2px] shrink-0 w-full ${isActive ? "bg-[#151b26]" : "bg-[#e8e8e9]"}`} />
-    );
-}
-
-function Tab1({ isActive, onClick }: { isActive: boolean; onClick: () => void }) {
-    return (
-        <button
-            onClick={onClick}
-            className="basis-0 content-stretch flex flex-col gap-[4px] grow items-center justify-center min-h-px min-w-px relative shrink-0 cursor-pointer"
-            data-name="Tab 2"
-        >
-            <Frame3 isActive={isActive} />
-            <Frame6 isActive={isActive} />
-        </button>
-    );
-}
-
-function Ai1({ isActive }: { isActive: boolean }) {
-    return (
-        <div className="relative shrink-0 size-[18px]" data-name="AI">
-            <AiSparkIcon style={{ color: "var(--achromatic-500)" }} />
-        </div>
-    );
-}
-
-function Frame39({ isActive }: { isActive: boolean }) {
-    return (
-        <div className="content-stretch flex gap-[4px] items-center justify-center relative shrink-0">
-            <div
-                className={`flex flex-col justify-center leading-[0] not-italic overflow-ellipsis overflow-hidden relative shrink-0 text-center text-nowrap tracking-[0.16px] home-stock-name ${
-                    isActive ? "text-[#151b26]" : "text-[#a1a4a8]"
-                }`}
-            >
-                <p className="leading-[1.5] overflow-ellipsis overflow-hidden whitespace-pre">
-                    AI 거래 내역
-                </p>
-            </div>
-        </div>
-    );
-}
-
-function Frame4({ isActive }: { isActive: boolean }) {
-    return (
-        <div className="relative shrink-0 w-full">
-            <div className="flex flex-row items-center justify-center overflow-clip rounded-[inherit] size-full">
-                <div className="box-border content-stretch flex gap-[4px] items-center justify-center pb-[4px] pt-[8px] px-[8px] relative w-full">
-                    <Ai1 isActive={isActive} />
-                    <Frame39 isActive={isActive} />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function Frame5({ isActive }: { isActive: boolean }) {
-    return (
-        <div className={`h-[2px] shrink-0 w-full ${isActive ? "bg-[#151b26]" : "bg-[#e8e8e9]"}`} />
-    );
-}
-
-function Tab({ isActive, onClick }: { isActive: boolean; onClick: () => void }) {
-    return (
-        <button
-            onClick={onClick}
-            className="basis-0 content-stretch flex flex-col gap-[4px] grow items-center justify-center min-h-px min-w-px relative shrink-0 cursor-pointer"
-            data-name="Tab 1"
-        >
-            <Frame4 isActive={isActive} />
-            <Frame5 isActive={isActive} />
-        </button>
-    );
-}
-
-function Component5({
-    activeTab,
-    onTabChange,
-}: {
-    activeTab: TabType;
-    onTabChange: (tab: TabType) => void;
-}) {
-    return (
-        <div
-            className="box-border content-stretch flex items-center justify-center px-[20px] py-0 relative shrink-0 w-[375px]"
-            data-name="영역 고정 세그먼트 탭"
-        >
-            <Tab1 isActive={activeTab === "analysis"} onClick={() => onTabChange("analysis")} />
-            <Tab isActive={activeTab === "trading"} onClick={() => onTabChange("trading")} />
-        </div>
-    );
-}
-
-function Frame9() {
-    return (
-        <div className="basis-0 content-stretch flex gap-[4px] grow items-center min-h-px min-w-px relative shrink-0">
-            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[12px] text-nowrap tracking-[0.24px]">
-                <p className="leading-[1.5] whitespace-pre">오늘 기준</p>
-            </div>
-        </div>
-    );
-}
-
-function Info1() {
-    return (
-        <div className="relative shrink-0 size-[16px]" data-name="info">
-            <InfoIcon style={{ color: "var(--achromatic-500)" }} />
-        </div>
-    );
-}
-
-function Frame10() {
-    return (
-        <div className="content-stretch flex gap-[2px] items-center relative shrink-0">
-            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[12px] text-nowrap tracking-[0.24px]">
-                <p className="leading-[1.5] whitespace-pre">지표 분석 안내</p>
-            </div>
-            <Info1 />
-        </div>
-    );
-}
-
-function Frame11() {
-    return (
-        <div className="box-border content-stretch flex flex-col gap-[16px] items-start pb-0 pt-[12px] px-0 relative shrink-0 w-full">
-            <div className="relative shrink-0 w-full">
-                <div className="flex flex-row items-center size-full">
-                    <div className="box-border content-stretch flex gap-[2px] items-center px-[20px] py-0 relative w-full">
-                        <Frame9 />
-                        <Frame10 />
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function IndicatorCard({
-    title,
-    description,
-    onClick,
-}: {
-    title: string;
-    description: string;
-    onClick: () => void;
-}) {
-    return (
-        <div className="relative shrink-0 w-full">
-            <div className="size-full">
-                <div className="box-border content-stretch flex flex-col gap-[8px] items-start px-[20px] py-0 relative w-full">
-                    <button
-                        onClick={onClick}
-                        className="bg-[#f2f4f8] relative rounded-[16px] shrink-0 w-full text-left"
-                    >
-                        <div className="size-full">
-                            <div className="box-border content-stretch flex flex-col gap-[20px] items-start p-[20px] relative w-full">
-                                <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
-                                    <div className="content-stretch flex flex-col gap-[2px] items-start justify-center relative shrink-0 w-full">
-                                        <div className="content-stretch flex gap-[4px] items-center relative shrink-0 w-full">
-                                            <div className="flex flex-col justify-center leading-[0] not-italic relative shrink-0 text-[#1fa9a4] text-[0px] text-nowrap tracking-[0.16px]">
-                                                <p className="[text-decoration-skip-ink:none] leading-[1.5] whitespace-pre card-title">
-                                                    {title}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#151b26] text-[14px] tracking-[0.14px] w-full">
-                                        <p className="leading-[1.45]">{description}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-function AnalysisContent({
-    onIndicatorClick,
-    investmentStyle,
-}: {
-    onIndicatorClick: (indicator: IndicatorInfo) => void;
+interface StockDetailProps {
+    stockName: string;
     investmentStyle: InvestmentStyle;
-}) {
-    const { modelType } = useInvestmentStyle();
-    const indicators = getIndicatorsByStyle(investmentStyle);
-
-    return (
-        <div className="basis-0 content-stretch flex flex-col gap-[8px] grow min-h-px min-w-px relative shrink-0">
-            <Frame11 />
-            {indicators.map((indicator) => (
-                <IndicatorCard
-                    key={indicator.id}
-                    title={indicator.title}
-                    description={indicator.shortDescription}
-                    onClick={() =>
-                        onIndicatorClick({
-                            title: indicator.title,
-                            description: indicator.shortDescription,
-                            fullDescription: indicator.detailedDescription,
-                            interpretationPoints: indicator.interpretationPoints,
-                        })
-                    }
-                />
-            ))}
-        </div>
-    );
+    onBack: () => void;
 }
 
-// AI 거래 내역 타입 정의
 interface Trade {
     type: "buy" | "sell";
     quantity: number;
@@ -677,7 +39,6 @@ interface DayTrading {
     trades: Trade[];
 }
 
-// Mock 데이터 - 백엔드에서 하루에 한 번씩 AI 결정을 받아올 예정
 const mockTradingHistory: DayTrading[] = [
     {
         date: "오늘",
@@ -738,159 +99,328 @@ const mockTradingHistory: DayTrading[] = [
     },
 ];
 
-function InfoIconTrading() {
-    return (
-        <div className="relative shrink-0 size-[16px]" data-name="info">
-            <InfoIcon style={{ color: "var(--achromatic-500)" }} />
-        </div>
-    );
+function SparklineChart() {
+    const chartRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!chartRef.current) return;
+
+        const generateMockData = () => {
+            const data = [];
+            const basePrice = 60000;
+            const now = new Date();
+
+            for (let i = 30; i >= 0; i--) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - i);
+                const randomChange = (Math.random() - 0.5) * 3000;
+                const price = basePrice + randomChange + (30 - i) * 100;
+                data.push({ time: Math.floor(date.getTime() / 1000) as any, value: price });
+            }
+            return data;
+        };
+
+        const chart = createChart(chartRef.current, {
+            layout: { background: { color: "transparent" }, textColor: "#1FA9A4" },
+            grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+            width: chartRef.current.clientWidth,
+            height: 48,
+            timeScale: { visible: false, borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+            rightPriceScale: { visible: false, borderVisible: false },
+            leftPriceScale: { visible: false, borderVisible: false },
+            crosshair: { mode: 0 },
+            handleScale: false,
+            handleScroll: false,
+        });
+
+        const series = chart.addAreaSeries({
+            lineColor: "#1FA9A4",
+            lineWidth: 2,
+            topColor: "rgba(31,169,164,0.16)",
+            bottomColor: "rgba(31,169,164,0)",
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+        });
+
+        series.setData(generateMockData());
+        chart.timeScale().fitContent();
+
+        const handleResize = () => {
+            if (chartRef.current) {
+                chart.applyOptions({ width: chartRef.current.clientWidth });
+            }
+        };
+
+        window.addEventListener("resize", handleResize);
+        return () => {
+            window.removeEventListener("resize", handleResize);
+            chart.remove();
+        };
+    }, []);
+
+    return <div ref={chartRef} className="h-12 w-full" />;
 }
 
-function TradingHistoryHeader() {
+function RecommendationCard({
+    recommendation,
+    aiExplanation,
+    loading,
+    error,
+}: {
+    recommendation: string;
+    aiExplanation: string;
+    loading: boolean;
+    error: string | null;
+}) {
     return (
-        <div className="box-border content-stretch flex flex-col gap-[16px] items-start pb-0 pt-[12px] px-0 relative shrink-0 w-full">
-            <div className="relative shrink-0 w-full">
-                <div className="flex flex-row items-center size-full">
-                    <div className="box-border content-stretch flex gap-[2px] items-center px-[20px] py-0 relative w-full">
-                        <div className="basis-0 content-stretch flex gap-[4px] grow items-center min-h-px min-w-px relative shrink-0">
-                            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[12px] text-nowrap tracking-[0.24px]">
-                                <p className="leading-[1.5] whitespace-pre">오늘</p>
-                            </div>
-                        </div>
-                        <div className="content-stretch flex gap-[2px] items-center relative shrink-0">
-                            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[12px] text-nowrap tracking-[0.24px]">
-                                <p className="leading-[1.5] whitespace-pre">AI 거래 내역 안내</p>
-                            </div>
-                            <InfoIconTrading />
-                        </div>
+        <div className="w-full" style={{ paddingInline: "20px" }}>
+            <section
+                className="rounded-[16px] bg-[#f2f4f8] flex flex-col"
+                style={{ padding: "20px", gap: "20px" }}
+            >
+                <div className="flex flex-col gap-1">
+                    <p className="label-2 text-[#6b6e74] tracking-[0.2px]">오늘의 추천 행동</p>
+                    <p className="text-[36px] tracking-[1.2px] text-[#1fa9a4]" style={{ fontWeight: 700 }}>
+                        {recommendation}
+                    </p>
+                </div>
+                <SparklineChart />
+                <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
+                <div className="h-px bg-[#dce1e9]" />
+                <div className="flex flex-col gap-[4px] text-[#151b26]">
+                    <div className="flex items-center gap-2">
+                        <AiSparkIcon className="h-[20px] w-[20px]" />
+                        <span className="title-3 tracking-[0.2px]">AI 설명</span>
                     </div>
+                    {loading ? (
+                        <p className="body-2 text-[#6b6e74]">AI가 최신 데이터를 분석하고 있습니다...</p>
+                    ) : error ? (
+                        <p className="body-2 text-[#f3646f]">{error}</p>
+                    ) : (
+                        <p className="body-2 text-[#151b26]">{aiExplanation}</p>
+                    )}
                 </div>
-            </div>
+            </section>
         </div>
     );
 }
 
-function TradeDivider() {
+const TAB_META: { id: TabType; label: string }[] = [
+    { id: "top3", label: "TOP3 분석" },
+    { id: "analysis", label: "지표 분석" },
+    { id: "trading", label: "AI 거래 내역" },
+];
+
+function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (tab: TabType) => void }) {
     return (
-        <div className="bg-white h-px relative shrink-0 w-full" data-name="디바이더">
-            <div className="flex flex-row items-center justify-center size-full">
-                <div className="box-border content-stretch flex h-px items-center justify-center px-[20px] py-0 relative w-full">
-                    <div className="basis-0 bg-[#f4f5f5] grow h-full min-h-px min-w-px shrink-0" />
-                </div>
-            </div>
+        <div className="flex w-full gap-2" role="tablist">
+            {TAB_META.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                    <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => onSelect(tab.id)}
+                        role="tab"
+                        aria-selected={isActive}
+                        className="flex-1 flex flex-col items-center px-2 py-3 text-center"
+                        style={{ gap: "8px" }}
+                    >
+                        <span
+                            className="title-3"
+                            style={{ color: isActive ? "var(--achromatic-800)" : "var(--achromatic-500)" }}
+                        >
+                            {tab.label}
+                        </span>
+                        <div
+                            className="h-[2px] w-full rounded-full"
+                            style={{ backgroundColor: isActive ? "var(--achromatic-800)" : "var(--achromatic-200)" }}
+                        />
+                    </button>
+                );
+            })}
         </div>
     );
+}
+
+interface IndicatorCardProps {
+    indicator: ReturnType<typeof getIndicatorsByStyle>[0];
+    crownColor?: string;
+    rankLabel?: string;
+}
+
+function IndicatorCard({ indicator, crownColor = "#f5c451", rankLabel }: IndicatorCardProps) {
+    return (
+        <div
+            className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
+            style={{ padding: "16px 20px 20px" }}
+        >
+            <div className="flex items-center gap-[4px]">
+                <CrownIcon className="h-4 w-4" style={{ color: crownColor }} aria-hidden />
+                <span className="title-3 text-[#1fa9a4] tracking-[0.16px]">{indicator.title}</span>
+            </div>
+            <p className="body-2 leading-6 text-[#151b26]" style={{ marginTop: "8px" }}>
+                {indicator.shortDescription}
+            </p>
+        </div>
+    );
+}
+
+function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyle }) {
+    const indicators = getIndicatorsByStyle(investmentStyle);
+
+    return (
+        <section className="flex w-full flex-col gap-4" style={{ paddingInline: "20px" }}>
+            <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
+                <span>오늘 기준</span>
+                <span className="flex items-center gap-1">
+                    <span>지표 분석 안내</span>
+                    <InfoIcon className="h-4 w-4 text-[#b0b4bd]" />
+                </span>
+            </div>
+            <div className="flex flex-col" style={{ gap: "16px" }}>
+                {indicators.map((indicator) => (
+                    <IndicatorCard key={indicator.id} indicator={indicator} />
+                ))}
+            </div>
+        </section>
+    );
+}
+
+function getTop3ReferenceLabel(now = new Date()) {
+    const cutoffHour = 20;
+    const cutoffMinute = 30;
+    const afterCutoff =
+        now.getHours() > cutoffHour ||
+        (now.getHours() === cutoffHour && now.getMinutes() >= cutoffMinute);
+    const referenceDate = new Date(now);
+    if (!afterCutoff) {
+        referenceDate.setDate(referenceDate.getDate() - 1);
+    }
+    const month = String(referenceDate.getMonth() + 1).padStart(2, "0");
+    const day = String(referenceDate.getDate()).padStart(2, "0");
+    return `${month}.${day}`;
+}
+
+function Top3AnalysisSection({
+    investmentStyle,
+    onIndicatorClick,
+}: {
+    investmentStyle: InvestmentStyle;
+    onIndicatorClick: (indicator: IndicatorInfo) => void;
+}) {
+    const indicators = getIndicatorsByStyle(investmentStyle).slice(0, 3);
+    const rankMeta = [
+        { label: "First Rank", color: "#FFD700" },
+        { label: "Second Rank", color: "#C0C0C0" },
+        { label: "Third Rank", color: "#CD7F32" },
+    ];
+    const referenceLabel = getTop3ReferenceLabel();
+    const handleGuideClick = () => {
+        onIndicatorClick({
+            title: "AI 선정 기준",
+            description: "TOP3 분석은 AI가 우선순위가 높은 지표를 선별해 구성합니다.",
+            fullDescription:
+                "AI는 최근 시장 변동성, 거래량, 추세 지표 등을 종합적으로 평가해 TOP3 분석 카드를 구성합니다. 각 지표는 현재 투자 전략에 미치는 영향도를 기준으로 선정되며, 변동성이 큰 경우 지표 구성이 달라질 수 있습니다.",
+            interpretationPoints: [
+                "시장 변동성, 추세, 수급 지표를 중심으로 선별됩니다.",
+                "상황에 따라 TOP3에 포함되는 지표가 달라질 수 있습니다.",
+                "각 지표 카드를 눌러 세부 해석을 확인해 주세요.",
+            ],
+        });
+    };
+
+    return (
+        <section className="flex w-full flex-col gap-[16px]" style={{ paddingInline: "20px" }}>
+            <div
+                className="flex items-center justify-between body-3"
+                style={{ color: "var(--achromatic-500)" }}
+            >
+                <span className="body-3">{referenceLabel} 20:30분 기준</span>
+                <button
+                    type="button"
+                    className="flex items-center gap-[2px]"
+                    onClick={handleGuideClick}
+                >
+                    <span>AI 선정 기준</span>
+                    <InfoIcon className="h-[16px] w-[16px] text-[#b0b4bd]" aria-hidden />
+                </button>
+            </div>
+            <div className="flex flex-col" style={{ gap: "16px" }}>
+                {indicators.map((indicator, index) => {
+                    const meta = rankMeta[index] ?? rankMeta[rankMeta.length - 1];
+                    return (
+                        <IndicatorCard
+                            key={indicator.id}
+                            indicator={indicator}
+                            crownColor={meta.color}
+                            rankLabel={meta.label}
+                        />
+                    );
+                })}
+            </div>
+        </section>
+    );
+}
+
+function TradeMeta({ label }: { label: string }) {
+    return <span className="text-[11px] text-[#9a9ea9] tracking-[0.2px]">{label}</span>;
 }
 
 function TradeItem({ trade }: { trade: Trade }) {
     const isSell = trade.type === "sell";
-    const hasProfitInfo = trade.profit !== undefined;
+    const profitColor = trade.profit && trade.profit > 0 ? "text-[#f3646f]" : "text-[#5c87f2]";
 
     return (
-        <>
-            <div className="relative shrink-0 w-full">
-                <div className="size-full">
-                    <div className="box-border content-stretch flex flex-col gap-[8px] items-start px-[20px] py-0 relative w-full">
-                        <div className="box-border content-stretch flex flex-col gap-[4px] items-start px-0 py-[8px] relative rounded-[16px] shrink-0 w-full">
-                            <div className="content-stretch flex flex-col items-start relative shrink-0 w-full">
-                                <div className="flex flex-col font-['Pretendard:Bold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#151b26] text-[16px] tracking-[0.16px] w-full">
-                                    <p className="leading-[1.5]">
-                                        {trade.quantity}주 {isSell ? "판매" : "구매"}
-                                    </p>
-                                </div>
-                                {hasProfitInfo && (
-                                    <div className="content-stretch flex font-['Pretendard:Bold',sans-serif] gap-[4px] items-start leading-[0] not-italic relative shrink-0 text-[16px] text-nowrap tracking-[0.16px] w-full">
-                                        <div
-                                            className={`flex flex-col justify-center relative shrink-0 ${
-                                                trade.profit! > 0
-                                                    ? "text-[#f3646f]"
-                                                    : "text-[#5c87f2]"
-                                            }`}
-                                        >
-                                            <p className="leading-[1.5] text-nowrap whitespace-pre">
-                                                {trade.profit! > 0 ? "+" : ""}
-                                                {trade.profit!.toLocaleString()}원
-                                            </p>
-                                        </div>
-                                        <div
-                                            className={`flex flex-col justify-center relative shrink-0 ${
-                                                trade.profit! > 0
-                                                    ? "text-[#f3646f]"
-                                                    : "text-[#5c87f2]"
-                                            }`}
-                                        >
-                                            <p className="leading-[1.5] text-nowrap whitespace-pre">
-                                                ({trade.profitPercent! > 0 ? "+" : ""}
-                                                {trade.profitPercent}%)
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className="content-stretch flex items-start relative shrink-0 w-full">
-                                <div className="flex flex-col font-['Pretendard:SemiBold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[11px] text-nowrap tracking-[0.22px]">
-                                    <p className="leading-[1.45] whitespace-pre">{trade.time}</p>
-                                </div>
-                                <div className="flex flex-col font-['Pretendard:SemiBold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[11px] text-nowrap tracking-[0.22px]">
-                                    <p className="leading-[1.45] whitespace-pre">・</p>
-                                </div>
-                                <div className="content-stretch flex gap-[4px] items-center relative shrink-0">
-                                    <div className="flex flex-col font-['Pretendard:SemiBold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[11px] text-nowrap tracking-[0.22px]">
-                                        <p className="leading-[1.45] whitespace-pre">1주당</p>
-                                    </div>
-                                    <div className="content-stretch flex font-['Pretendard:SemiBold',sans-serif] items-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[11px] text-nowrap tracking-[0.22px]">
-                                        <div className="flex flex-col justify-center relative shrink-0">
-                                            <p className="leading-[1.45] text-nowrap whitespace-pre">
-                                                {trade.pricePerShare.toLocaleString()}원
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <div className="rounded-2xl bg-[#f8f9fb] p-4">
+            <p className="text-base font-semibold text-[#151b26]">
+                {trade.quantity}주 {isSell ? "판매" : "구매"}
+            </p>
+            {trade.profit !== undefined && trade.profitPercent !== undefined && (
+                <p className={`mt-1 text-sm font-semibold ${profitColor}`}>
+                    {trade.profit > 0 ? "+" : ""}
+                    {trade.profit.toLocaleString()}원 ({trade.profitPercent > 0 ? "+" : ""}
+                    {trade.profitPercent}%)
+                </p>
+            )}
+            <div className="mt-2 flex items-center gap-1 text-[11px] text-[#9a9ea9]">
+                <TradeMeta label={trade.time} />
+                <span>·</span>
+                <TradeMeta label="1주당" />
+                <span>{trade.pricePerShare.toLocaleString()}원</span>
             </div>
-            <TradeDivider />
-        </>
+        </div>
     );
 }
 
-function DaySection({ dayTrading }: { dayTrading: DayTrading }) {
+function TradingHistorySection() {
     return (
-        <div className="box-border content-stretch flex flex-col gap-[16px] items-start pb-0 pt-[12px] px-0 relative shrink-0 w-full">
-            <div className="relative shrink-0 w-full">
-                <div className="flex flex-row items-center size-full">
-                    <div className="box-border content-stretch flex gap-[2px] items-center px-[20px] py-0 relative w-full">
-                        <div className="basis-0 content-stretch flex gap-[4px] grow items-center min-h-px min-w-px relative shrink-0">
-                            <div className="flex flex-col font-['Pretendard:Medium',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[#a1a4a8] text-[12px] text-nowrap tracking-[0.24px]">
-                                <p className="leading-[1.5] whitespace-pre">{dayTrading.date}</p>
-                            </div>
+        <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
+            <div className="flex items-center justify-between text-xs text-[#9a9ea9]">
+                <span>오늘</span>
+                <span className="flex items-center gap-1">
+                    <span>AI 거래 내역 안내</span>
+                    <InfoIcon className="h-4 w-4 text-[#b0b4bd]" />
+                </span>
+            </div>
+            <div className="flex flex-col gap-6">
+                {mockTradingHistory.map((day) => (
+                    <div key={day.date} className="flex flex-col gap-3">
+                        <p className="text-xs text-[#9a9ea9]">{day.date}</p>
+                        <div className="flex flex-col gap-3">
+                            {day.trades.map((trade, index) => (
+                                <TradeItem key={`${day.date}-${index}`} trade={trade} />
+                            ))}
                         </div>
                     </div>
-                </div>
-            </div>
-            <div className="content-stretch flex flex-col gap-[8px] items-start relative shrink-0 w-full">
-                {dayTrading.trades.map((trade, index) => (
-                    <TradeItem key={index} trade={trade} />
                 ))}
             </div>
-        </div>
+        </section>
     );
 }
 
-function TradingHistory() {
-    return (
-        <div className="w-full flex flex-col gap-[8px] pb-[40px]">
-            <TradingHistoryHeader />
-            {mockTradingHistory.map((dayTrading, index) => (
-                <DaySection key={index} dayTrading={dayTrading} />
-            ))}
-        </div>
-    );
-}
-
-function Frame43({
+function StockDetailContent({
     stockName,
     onBack,
     recommendation,
@@ -899,6 +429,8 @@ function Frame43({
     onTabChange,
     onIndicatorClick,
     investmentStyle,
+    loading,
+    error,
 }: {
     stockName: string;
     onBack: () => void;
@@ -908,39 +440,43 @@ function Frame43({
     onTabChange: (tab: TabType) => void;
     onIndicatorClick: (indicator: IndicatorInfo) => void;
     investmentStyle: InvestmentStyle;
+    loading: boolean;
+    error: string | null;
 }) {
     return (
-        <div className="absolute inset-[50px_0px_32px_0px] overflow-y-auto flex justify-center">
-            <div className="flex flex-col min-h-full w-[375px]">
-                <Component3 stockName={stockName} onBack={onBack} />
-                <Frame41 recommendation={recommendation} aiExplanation={aiExplanation} />
-                <Component5 activeTab={activeTab} onTabChange={onTabChange} />
-                <div className="flex-1">
-                    {activeTab === "analysis" ? (
-                        <AnalysisContent
-                            onIndicatorClick={onIndicatorClick}
-                            investmentStyle={investmentStyle}
-                        />
-                    ) : (
-                        <TradingHistory />
-                    )}
+        <div
+            className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] gap-4"
+            style={{ paddingBottom: "52px" }}
+        >
+            <div className="w-full px-5" style={{ marginBottom: "16px" }}>
+                <Header title={stockName} onBack={onBack} leftIcon={CaretLeftIcon} />
+            </div>
+            <div className="flex flex-col gap-6">
+                <RecommendationCard
+                    recommendation={recommendation}
+                    aiExplanation={aiExplanation}
+                    loading={loading}
+                    error={error}
+                />
+                <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "20px" }}>
+                    <DetailTabs activeTab={activeTab} onSelect={onTabChange} />
                 </div>
+                {activeTab === "top3" && (
+                    <Top3AnalysisSection
+                        investmentStyle={investmentStyle}
+                        onIndicatorClick={onIndicatorClick}
+                    />
+                )}
+                {activeTab === "analysis" && <IndicatorSection investmentStyle={investmentStyle} />}
+                {activeTab === "trading" && <TradingHistorySection />}
             </div>
         </div>
     );
 }
 
-interface StockDetailProps {
-    stockName: string;
-    investmentStyle: InvestmentStyle;
-    onBack: () => void;
-}
-
 export default function StockDetail({ stockName, investmentStyle, onBack }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("analysis");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorInfo | null>(null);
-
-    // AI 분석 데이터 상태 관리
     const [aiData, setAiData] = useState({
         recommendation: "분석 중...",
         aiExplanation: "데이터를 분석하고 있습니다...",
@@ -948,11 +484,8 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-
-    // 투자 성향에 따라 다른 AI 모델 결과 표시
     const { modelType } = useInvestmentStyle();
 
-    // 신호를 한국어로 변환하는 함수
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
             buy: "매수",
@@ -962,14 +495,13 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
         return signalMap[signal?.toLowerCase()] || "분석 중";
     };
 
-    // Mock 예측 결과 생성 함수
-    const getMockPredictionResult = (modelType: string) => {
+    const getMockPredictionResult = (model: string) => {
         const mockResults: Record<string, any> = {
             model2: {
                 signal: "buy",
                 confidence_score: 0.75,
                 gpt_explanation:
-                    "A2C 모델 분석: 공격적인 투자 전략을 바탕으로 현재 매수 타이밍으로 판단됩니다. 단기 변동성이 있으나 상승 모멘텀이 강합니다.",
+                    "전반적으로 하락세를 유지하고 있으며, 주가는 추가 하락 가능성이 높습니다. 시장 상황에 대한 신중한 접근과 경계를 유지하여 변동성에 대비하는 것이 중요합니다.",
                 technical_indicators: {
                     EMA12: 61500,
                     EMA26: 60800,
@@ -1006,11 +538,10 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
             },
         };
 
-        return mockResults[modelType] || mockResults["marl"];
+        return mockResults[model] || mockResults.marl;
     };
 
-    // 최종 폴백 추천 함수
-    const getFallbackRecommendation = (modelType: string) => {
+    const getFallbackRecommendation = (model: string) => {
         const fallbackData: Record<string, any> = {
             model2: {
                 recommendation: "매수",
@@ -1032,19 +563,15 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
             },
         };
 
-        return fallbackData[modelType] || fallbackData["marl"];
+        return fallbackData[model] || fallbackData.marl;
     };
 
-    // AI 분석 데이터 로딩
     useEffect(() => {
         const loadAIAnalysis = async () => {
             try {
                 setLoading(true);
                 setError(null);
 
-                console.log("현재 modelType:", modelType);
-
-                // Mock 기술 지표 데이터 (실제로는 주식 데이터에서 계산)
                 const mockFeatures = {
                     SMA20: 62000,
                     MACD: 0.5,
@@ -1061,18 +588,13 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
                     AnalystRating: 3.5,
                 };
 
-                // 백엔드 연결 시도
                 let result;
                 try {
-                    // 백엔드 서버 확인을 위한 헬스 체크
                     await api.health();
                     result = await api.predictByInvestmentStyle(modelType, mockFeatures);
-                    console.log("백엔드 API 호출 성공:", result);
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
-                    // 백엔드가 없을 때 Mock 데이터 사용
                     result = getMockPredictionResult(modelType);
-                    console.log("Mock 데이터 사용:", result);
                 }
 
                 setAiData({
@@ -1084,9 +606,7 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
-                // 최종 폴백: 투자 성향별 기본 추천
-                const fallbackData = getFallbackRecommendation(modelType);
-                setAiData(fallbackData);
+                setAiData(getFallbackRecommendation(modelType));
             } finally {
                 setLoading(false);
             }
@@ -1095,25 +615,22 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
         loadAIAnalysis();
     }, [modelType]);
 
-    const { recommendation, aiExplanation } = aiData;
-
     return (
-        <div className="bg-white relative min-h-screen w-full" data-name="종목 상세">
-            <Frame43
+        <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
+            <StockDetailContent
                 stockName={stockName}
                 onBack={onBack}
-                recommendation={recommendation}
-                aiExplanation={aiExplanation}
+                recommendation={aiData.recommendation}
+                aiExplanation={aiData.aiExplanation}
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
                 onIndicatorClick={setSelectedIndicator}
                 investmentStyle={investmentStyle}
+                loading={loading}
+                error={error}
             />
 
-            <IndicatorModal
-                indicator={selectedIndicator}
-                onClose={() => setSelectedIndicator(null)}
-            />
+            <IndicatorModal indicator={selectedIndicator} onClose={() => setSelectedIndicator(null)} />
         </div>
     );
 }
