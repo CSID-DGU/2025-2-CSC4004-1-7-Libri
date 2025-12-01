@@ -136,10 +136,6 @@ class Portfolio(Base):
 
     initial_capital = Column(Float, nullable=False)
     current_capital = Column(Float, nullable=False)
-    
-    # 보유 주식 정보
-    shares_held = Column(Integer, default=0)
-    average_entry_price = Column(Float, default=0.0)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
@@ -161,7 +157,6 @@ class StockPrice(Base):
     low = Column(Float, nullable=True)
     close = Column(Float, nullable=True)
     volume = Column(Float, nullable=True)
-    adj_close = Column(Float, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 

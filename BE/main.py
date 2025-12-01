@@ -32,8 +32,9 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     init_db()
-    model_loader.load_marl_model()  # MARL 3-agent 모델
-    model_loader.load_model_3()      # A2C 공격형 모델
+    model_loader.load_marl_model()
+    model_loader.load_model_2()
+    model_loader.load_model_3()
 
 # API 키 인증
 def verify_api_key(x_api_key: Optional[str] = Header(None)):
@@ -71,18 +72,25 @@ async def get_models_list(authenticated: bool = Depends(verify_api_key)):
     
     models = [
         ModelInfo(
-            id="marl_3agent",
-            name="MARL 3-Agent (안정형)",
-            description="3개 에이전트 기반 멀티 에이전트 강화학습 모델 - 안정적인 투자 전략",
+            id="marl_4agent",
+            name="MARL 4-Agent",
+            description="4개 에이전트 기반 멀티 에이전트 강화학습 모델 (단기/장기/위험/감성)",
             endpoint="/predict/marl",
-            status=status["marl_3agent"]
+            status=status["marl_4agent"]
         ),
         ModelInfo(
-            id="a2c",
-            name="A2C (공격형)",
-            description="공격형 A2C 강화학습 모델 - 적극적인 매매 전략",
-            endpoint="/predict/a2c",
-            status=status["a2c"]
+            id="model_2",
+            name="Model 2",
+            description="두 번째 AI 트레이딩 모델",
+            endpoint="/predict/model2",
+            status=status["model_2"]
+        ),
+        ModelInfo(
+            id="model_3",
+            name="Model 3",
+            description="세 번째 AI 트레이딩 모델",
+            endpoint="/predict/model3",
+            status=status["model_3"]
         )
     ]
     
@@ -94,12 +102,12 @@ async def predict_marl(
     db: Session = Depends(get_db),
     authenticated: bool = Depends(verify_api_key)
 ):
-    """MARL 3-agent 모델 예측 (XAI 포함)"""
+    """MARL 4-agent 모델 예측 (XAI 포함)"""
     try:
         signal, vote_sum, indicators, xai_explanation, xai_importance = model_loader.predict_marl(data.features)
         
-        # vote_sum을 confidence_score로 변환 (-3~3 -> 0.0~1.0)
-        confidence = (abs(vote_sum) / 3.0) * 0.5 + 0.5
+        # vote_sum을 confidence_score로 변환 (-4~4 -> 0.0~1.0)
+        confidence = (abs(vote_sum) / 4.0) * 0.5 + 0.5
         
         # GPT 해석
         gpt_explanation = await interpret_model_output(signal, indicators)
@@ -124,7 +132,7 @@ async def predict_marl(
         db.commit()
         
         return ModelPredictionResponse(
-            model_type="marl_3agent",
+            model_type="marl_4agent",
             signal=signal,
             confidence_score=confidence,
             technical_indicators=indicators,
@@ -137,23 +145,41 @@ async def predict_marl(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
-@app.post("/predict/a2c", response_model=ModelPredictionResponse)
-async def predict_a2c(
+@app.post("/predict/model2", response_model=ModelPredictionResponse)
+async def predict_model2(
     data: MarketDataInput,
     db: Session = Depends(get_db),
     authenticated: bool = Depends(verify_api_key)
 ):
-    """A2C (공격형) 모델 예측"""
+    """Model 2 예측"""
     try:
-        # features가 제공되면 전달, 없으면 yfinance에서 가져옴
-        signal, confidence, indicators = model_loader.predict_model_3(
-            symbol=data.symbol, 
-            features=data.features if data.features else None
-        )
+        signal, confidence, indicators = model_loader.predict_model_2(data.features)
         gpt_explanation = await interpret_model_output(signal, indicators)
         
         return ModelPredictionResponse(
-            model_type="a2c",
+            model_type="model_2",
+            signal=signal,
+            confidence_score=confidence,
+            technical_indicators=indicators,
+            gpt_explanation=gpt_explanation,
+            timestamp=datetime.utcnow()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+@app.post("/predict/model3", response_model=ModelPredictionResponse)
+async def predict_model3(
+    data: MarketDataInput,
+    db: Session = Depends(get_db),
+    authenticated: bool = Depends(verify_api_key)
+):
+    """Model 3 예측"""
+    try:
+        signal, confidence, indicators = model_loader.predict_model_3(symbol=data.symbol)
+        gpt_explanation = await interpret_model_output(signal, indicators)
+        
+        return ModelPredictionResponse(
+            model_type="model_3",
             signal=signal,
             confidence_score=confidence,
             technical_indicators=indicators,
