@@ -1,4 +1,4 @@
-import { default as CloseIcon } from "@/assets/icons/caret-left.svg?react";
+import { default as CloseIcon } from "@/assets/icons/close.svg?react";
 
 interface IndicatorModalProps {
     indicator: {
