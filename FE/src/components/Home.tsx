@@ -3,7 +3,6 @@ import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
 import LogoIcon from "@/assets/icons/Logo.svg?react";
-import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";

@@ -1,5 +1,5 @@
 import Header from "@/components/layout/Header";
-import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
+import SmallCaretRightIcon from "@/assets/icons/small-caret-right.svg?react";
 
 interface SettingsProps {
     onBack?: () => void;
@@ -26,10 +26,11 @@ function MenuButton({ label, onClick }: { label: string; onClick: () => void }) 
         <button
             type="button"
             onClick={onClick}
-            className="flex w-full items-center justify-between px-1 py-4 transition-colors hover:text-[#1fa9a4]"
+            className="flex w-full items-center justify-between transition-colors hover:text-[#1fa9a4]"
+            style={{ paddingInline: "20px", paddingBlock: "20px" }}
         >
             <span className="title-3 text-[#151b26]">{label}</span>
-            <CaretLeftIcon className="h-5 w-5 text-[#c9cbd0] rotate-180" />
+            <SmallCaretRightIcon className="h-5 w-5 text-[#c9cbd0]" />
         </button>
     );
 }
@@ -41,15 +42,19 @@ export default function Settings({ onBack, onSelectMenu }: SettingsProps) {
 
     return (
         <div className="relative min-h-screen w-full bg-white">
-            <Header title="설정" onBack={onBack} />
-            <div className="mx-auto flex w-full max-w-[375px] flex-col gap-0 px-5 py-6">
-                <div className="rounded-2xl border border-[#f0f1f3] bg-[#fdfefe] px-4">
-                    {menus.map((item, index) => (
-                        <div key={item.key}>
-                            <MenuButton label={item.label} onClick={() => handleSelect(item.key)} />
-                            {index < menus.length - 1 && <Divider />}
+            <div className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px]">
+                <div className="flex w-full flex-col" style={{ gap: "12px" }}>
+                    <Header title="설정" onBack={onBack} />
+                    <div className="w-full px-5 pb-6">
+                        <div className="rounded-2xl border border-[#f0f1f3] bg-[#fdfefe] px-4">
+                            {menus.map((item, index) => (
+                                <div key={item.key}>
+                                    <MenuButton label={item.label} onClick={() => handleSelect(item.key)} />
+                                    {index < menus.length - 1 && <Divider />}
+                                </div>
+                            ))}
                         </div>
-                    ))}
+                    </div>
                 </div>
             </div>
         </div>
