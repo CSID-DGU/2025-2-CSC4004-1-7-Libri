@@ -270,3 +270,13 @@ class QMIX_Learner:
         self.target_mixer.load_state_dict(state_dict['target_mixer'])
         self.optimizer.load_state_dict(state_dict['optimizer'])
         self.scheduler.load_state_dict(state_dict['scheduler'])
+
+    def eval(self):
+        for agent in self.agents:
+            agent.q_net.eval()
+        self.mixer.eval()
+
+    def train_mode(self):
+        for agent in self.agents:
+            agent.q_net.train()
+        self.mixer.train()

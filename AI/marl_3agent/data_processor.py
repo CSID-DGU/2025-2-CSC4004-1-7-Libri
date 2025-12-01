@@ -296,34 +296,6 @@ class DataProcessor:
         price_cols = ['Close', 'High', 'Low', 'SMA20']
         for col in price_cols:
             if col in df_train_norm.columns:
-                first_val = df_train[col].iloc[0] + 1e-9
-                df_train_norm[col] = (df_train_norm[col] / first_val) - 1.0
-                df_test_norm[col] = (df_test_norm[col] / first_val) - 1.0
-                self.scalers[col] = {'type': 'price', 'first_val': first_val}
-
-        # 2. MinMaxScaler
-        minmax_cols = ['Volume', 'ATR', 'VIX']
-        for col in minmax_cols:
-            if col in df_train_norm.columns:
-                scaler = MinMaxScaler()
-                df_train_norm[col] = scaler.fit_transform(df_train_norm[[col]])
-                df_test_norm[col] = scaler.transform(df_test_norm[[col]])
-                self.scalers[col] = scaler
-
-        # 3. StandardScaler
-        std_cols = ['MACD', 'MACD_Signal', 'ROA', 'DebtRatio', 'AnalystRating']
-        for col in std_cols:
-            if col in df_train_norm.columns:
-                scaler = StandardScaler()
-                df_train_norm[col] = scaler.fit_transform(df_train_norm[[col]])
-                df_test_norm[col] = scaler.transform(df_test_norm[[col]])
-                self.scalers[col] = scaler
-
-        # 4. 100으로 나누기
-        ratio_cols = ['RSI', 'Stoch_K', 'Stoch_D']
-        for col in ratio_cols:
-            if col in df_train_norm.columns:
-                df_train_norm[col] = df_train_norm[col] / 100.0
                 df_test_norm[col] = df_test_norm[col] / 100.0
                 self.scalers[col] = {'type': 'ratio_100'}
 
