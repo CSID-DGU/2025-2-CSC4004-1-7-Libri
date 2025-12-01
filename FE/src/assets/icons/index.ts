@@ -11,3 +11,4 @@ export { default as lightning } from "./lightning.svg";
 export { default as shield } from "./shield.svg";
 export { default as logo } from "./logo.svg";
 export { default as close } from "./close.svg";
+export { default as smallCaretRight } from "./small-caret-right.svg";
