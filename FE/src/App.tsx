@@ -5,6 +5,7 @@ import StockPriceInput from "./components/StockPriceInput";
 import InitialInvestmentInput from "./components/InitialInvestmentInput";
 import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
+import Settings from "./components/Settings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 
 type Page =
@@ -14,6 +15,7 @@ type Page =
     | "investment"
     | "style"
     | "home"
+    | "settings"
     | "add-stock"
     | "add-quantity"
     | "add-price";
@@ -229,7 +231,11 @@ export default function App() {
                         stocks={state.stocks}
                         onAddStock={handleAddStock}
                         investmentStyle={state.investmentStyle as InvestmentStyle}
+                        onOpenSettings={() => goToPage("settings")}
                     />
+                )}
+                {state.currentPage === "settings" && (
+                    <Settings onBack={() => goBack("home")} />
                 )}
                 {state.currentPage === "add-stock" && (
                     <Onboarding

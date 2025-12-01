@@ -23,7 +23,7 @@ interface HomeProps {
     stocks: Stock[];
     onAddStock: () => void;
     investmentStyle: "공격형" | "안정형";
-    onOpenSettings?: () => void;
+    onOpenSettings: () => void;
 }
 
 const formatNumber = (value: number) => value.toLocaleString();
@@ -37,7 +37,7 @@ const formatProfitText = (profit: number, profitRate: number) => {
     };
 };
 
-function HomeHeader({ onOpenSettings }: { onOpenSettings?: () => void }) {
+function HomeHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     return (
         <header
             className="flex w-full items-center justify-between"
@@ -278,7 +278,7 @@ function HomeContent({
     stocks: Stock[];
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
-    onOpenSettings?: () => void;
+    onOpenSettings: () => void;
 }) {
     return (
         <div className="absolute content-stretch flex flex-col gap-[12px] items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] pb-16">
