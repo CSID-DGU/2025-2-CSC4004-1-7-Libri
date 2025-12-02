@@ -1,18 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type SVGProps } from "react";
 import Header from "@/components/layout/Header";
 import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
+import CaretDownIcon from "@/assets/icons/caret-down.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import InfoIcon from "@/assets/icons/info.svg?react";
 import CrownIcon from "@/assets/icons/crown.svg?react";
 import { createChart } from "lightweight-charts";
 import IndicatorModal from "./IndicatorModal";
-import { getIndicatorsByStyle } from "../data/indicatorsByStyle";
+import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsByStyle";
 import { type InvestmentStyle, useInvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
 
 export type TabType = "top3" | "analysis" | "trading";
 
-interface IndicatorInfo {
+interface IndicatorGuideInfo {
     title: string;
     description: string;
     fullDescription: string;
@@ -22,6 +23,7 @@ interface IndicatorInfo {
 interface StockDetailProps {
     stockName: string;
     investmentStyle: InvestmentStyle;
+    initialInvestment: number;
     onBack: () => void;
 }
 
@@ -39,71 +41,114 @@ interface DayTrading {
     trades: Trade[];
 }
 
-const mockTradingHistory: DayTrading[] = [
-    {
-        date: "오늘",
-        trades: [
-            {
-                type: "sell",
-                quantity: 10,
-                pricePerShare: 63830,
-                time: "14:22",
-                profit: 12830,
-                profitPercent: 22.3,
-            },
-            {
-                type: "buy",
-                quantity: 10,
-                pricePerShare: 51000,
-                time: "14:22",
-            },
-        ],
-    },
-    {
-        date: "어제",
-        trades: [
-            {
-                type: "sell",
-                quantity: 10,
-                pricePerShare: 58200,
-                time: "14:22",
-                profit: -12830,
-                profitPercent: -22.3,
-            },
-            {
-                type: "buy",
-                quantity: 10,
-                pricePerShare: 71030,
-                time: "14:23",
-            },
-        ],
-    },
-    {
-        date: "11월 19일",
-        trades: [
-            {
-                type: "sell",
-                quantity: 100,
-                pricePerShare: 45670,
-                time: "14:22",
-                profit: -12830,
-                profitPercent: -22.3,
-            },
-            {
-                type: "buy",
-                quantity: 100,
-                pricePerShare: 58500,
-                time: "14:23",
-            },
-        ],
-    },
-];
+type TradeAction = "buy" | "sell" | "hold";
+
+interface PriceDay {
+    label: string;
+    high: number;
+    low: number;
+    close: number;
+}
+
+function formatRelativeDayLabel(offset: number) {
+    if (offset === 0) return "오늘";
+    if (offset === 1) return "어제";
+    const date = new Date();
+    date.setDate(date.getDate() - offset);
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return `${month}월 ${day}일`;
+}
+
+const ACTION_CHOICES: TradeAction[] = ["buy", "sell", "hold"];
+
+function generateRandomActions(length: number): TradeAction[] {
+    return Array.from({ length }, () => ACTION_CHOICES[Math.floor(Math.random() * ACTION_CHOICES.length)]);
+}
+
+function generateMockPriceSeries(days = 30, basePrice = 70000): PriceDay[] {
+    const series: PriceDay[] = [];
+    let priceCursor = basePrice;
+    for (let i = 0; i < days; i++) {
+        const label = formatRelativeDayLabel(i);
+        const dailyDrift = (Math.random() - 0.5) * 2000;
+        priceCursor = Math.max(45000, priceCursor + dailyDrift);
+        const low = Math.max(42000, Math.round(priceCursor - (Math.random() * 1500 + 500)));
+        const high = Math.round(priceCursor + (Math.random() * 1800 + 600));
+        const close = Math.round((high + low) / 2);
+        series.push({ label, high, low, close });
+    }
+    return series;
+}
+
+function simulateTradingHistory(
+    initialInvestment: number,
+    priceSeries: PriceDay[],
+    actions: TradeAction[],
+): DayTrading[] {
+    let cash = initialInvestment;
+    let holdings = 0;
+    let totalCost = 0;
+
+    return priceSeries.map((day, index) => {
+        const action = actions[index] ?? "hold";
+        const trades: Trade[] = [];
+
+        if (action === "buy") {
+            const maxAffordable = Math.min(10, Math.floor(cash / day.low));
+            if (maxAffordable > 0) {
+                const cost = maxAffordable * day.low;
+                cash -= cost;
+                holdings += maxAffordable;
+                totalCost += cost;
+                trades.push({
+                    type: "buy",
+                    quantity: maxAffordable,
+                    pricePerShare: day.low,
+                    time: "10:05",
+                });
+            }
+        } else if (action === "sell") {
+            const sellQuantity = Math.min(10, holdings);
+            if (sellQuantity > 0) {
+                const averageCostPerShare = holdings > 0 ? totalCost / holdings : 0;
+                const costBasis = averageCostPerShare * sellQuantity;
+                const revenue = sellQuantity * day.high;
+                const profit = revenue - costBasis;
+                const profitPercent =
+                    averageCostPerShare > 0
+                        ? ((day.high - averageCostPerShare) / averageCostPerShare) * 100
+                        : 0;
+
+                cash += revenue;
+                holdings -= sellQuantity;
+                totalCost -= costBasis;
+
+                trades.push({
+                    type: "sell",
+                    quantity: sellQuantity,
+                    pricePerShare: day.high,
+                    time: "14:25",
+                    profit: Math.round(profit),
+                    profitPercent: parseFloat(profitPercent.toFixed(1)),
+                });
+            }
+        }
+
+        return {
+            date: day.label,
+            trades,
+        };
+    });
+}
 
 function SparklineChart() {
-    const chartRef = useRef<HTMLDivElement>(null);
+    const chartContainerRef = useRef<HTMLDivElement>(null);
+    const chartInstanceRef = useRef<ReturnType<typeof createChart> | null>(null);
 
     useEffect(() => {
-        if (!chartRef.current) return;
+        const container = chartContainerRef.current;
+        if (!container) return;
 
         const generateMockData = () => {
             const data = [];
@@ -120,10 +165,10 @@ function SparklineChart() {
             return data;
         };
 
-        const chart = createChart(chartRef.current, {
+        const chart = createChart(container, {
             layout: { background: { color: "transparent" }, textColor: "#1FA9A4" },
             grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-            width: chartRef.current.clientWidth,
+            width: container.clientWidth,
             height: 48,
             timeScale: { visible: false, borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
             rightPriceScale: { visible: false, borderVisible: false },
@@ -132,6 +177,7 @@ function SparklineChart() {
             handleScale: false,
             handleScroll: false,
         });
+        chartInstanceRef.current = chart;
 
         const series = chart.addAreaSeries({
             lineColor: "#1FA9A4",
@@ -146,20 +192,24 @@ function SparklineChart() {
         series.setData(generateMockData());
         chart.timeScale().fitContent();
 
-        const handleResize = () => {
-            if (chartRef.current) {
-                chart.applyOptions({ width: chartRef.current.clientWidth });
+        const resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry || !chartInstanceRef.current) return;
+            const nextWidth = Math.floor(entry.contentRect.width);
+            if (nextWidth > 0) {
+                chartInstanceRef.current.applyOptions({ width: nextWidth });
             }
-        };
+        });
 
-        window.addEventListener("resize", handleResize);
+        resizeObserver.observe(container);
         return () => {
-            window.removeEventListener("resize", handleResize);
+            resizeObserver.disconnect();
             chart.remove();
+            chartInstanceRef.current = null;
         };
     }, []);
 
-    return <div ref={chartRef} className="h-12 w-full" />;
+    return <div ref={chartContainerRef} className="h-12 w-full" />;
 }
 
 function RecommendationCard({
@@ -187,9 +237,8 @@ function RecommendationCard({
                 </div>
                 <SparklineChart />
                 <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
-                <div className="h-px bg-[#dce1e9]" />
                 <div className="flex flex-col gap-[4px] text-[#151b26]">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-[4px]">
                         <AiSparkIcon className="h-[20px] w-[20px]" />
                         <span className="title-3 tracking-[0.2px]">AI 설명</span>
                     </div>
@@ -206,7 +255,11 @@ function RecommendationCard({
     );
 }
 
-const TAB_META: { id: TabType; label: string }[] = [
+const TAB_META: {
+    id: TabType;
+    label: string;
+    icon?: ComponentType<SVGProps<SVGSVGElement>>;
+}[] = [
     { id: "top3", label: "TOP3 분석" },
     { id: "analysis", label: "지표 분석" },
     { id: "trading", label: "AI 거래 내역" },
@@ -217,6 +270,7 @@ function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (ta
         <div className="flex w-full gap-2" role="tablist">
             {TAB_META.map((tab) => {
                 const isActive = activeTab === tab.id;
+                const Icon = tab.icon;
                 return (
                     <button
                         key={tab.id}
@@ -228,9 +282,15 @@ function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (ta
                         style={{ gap: "8px" }}
                     >
                         <span
-                            className="title-3"
+                            className="title-3 flex items-center justify-center gap-1"
                             style={{ color: isActive ? "var(--achromatic-800)" : "var(--achromatic-500)" }}
                         >
+                            {Icon ? (
+                                <Icon
+                                    className="h-[18px] w-[18px]"
+                                    style={{ color: isActive ? "var(--achromatic-800)" : "var(--achromatic-500)" }}
+                                />
+                            ) : null}
                             {tab.label}
                         </span>
                         <div
@@ -244,13 +304,12 @@ function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (ta
     );
 }
 
-interface IndicatorCardProps {
-    indicator: ReturnType<typeof getIndicatorsByStyle>[0];
+interface Top3IndicatorCardProps {
+    indicator: IndicatorInfo;
     crownColor?: string;
-    rankLabel?: string;
 }
 
-function IndicatorCard({ indicator, crownColor = "#f5c451", rankLabel }: IndicatorCardProps) {
+function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorCardProps) {
     return (
         <div
             className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
@@ -267,21 +326,63 @@ function IndicatorCard({ indicator, crownColor = "#f5c451", rankLabel }: Indicat
     );
 }
 
+function AnalysisIndicatorCard({ indicator }: { indicator: IndicatorInfo }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const toggleOpen = () => setIsOpen((prev) => !prev);
+
+    return (
+        <div
+            className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
+            style={{ padding: "20px 20px 12px" }}
+        >
+            <span className="title-3 text-[#151b26] tracking-[0.16px]">{indicator.title}</span>
+            <p className="body-2 text-[#414651]" style={{ marginTop: "8px" }}>
+                {indicator.shortDescription}
+            </p>
+            {isOpen && (
+                <div className="flex flex-col gap-[26px] text-sm text-[#4b4f59]" style={{ marginTop: "24px" }}>
+                    <p className="title-4 text-[#444951]">💡 해석 포인트</p>
+                    <ul className="flex list-disc flex-col body-2 gap-2" style={{ paddingLeft: "24px", paddingTop: "8px" }}>
+                        {indicator.interpretationPoints.map((point, idx) => (
+                            <li key={idx} className="leading-6">
+                                {point}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            <div
+                className="flex flex-col items-center justify-center"
+                style={{ marginTop: "16px", borderTop: "0.5px solid var(--achromatic-200)", paddingTop: "4px" }}
+            >
+                <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={toggleOpen}
+                    className="flex items-center justify-center"
+                    style={{ padding: "4px"}}
+                >
+                    <CaretDownIcon
+                        className="h-[20px] w-[20px] transition-transform duration-200"
+                        style={{
+                            color: "var(--achromatic-500)",
+                            transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        }}
+                    />
+                </button>
+            </div>
+        </div>
+    );
+}
+
 function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyle }) {
-    const indicators = getIndicatorsByStyle(investmentStyle);
+    const indicatorData = getIndicatorsByStyle(investmentStyle);
 
     return (
         <section className="flex w-full flex-col gap-4" style={{ paddingInline: "20px" }}>
-            <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
-                <span>오늘 기준</span>
-                <span className="flex items-center gap-1">
-                    <span>지표 분석 안내</span>
-                    <InfoIcon className="h-4 w-4 text-[#b0b4bd]" />
-                </span>
-            </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
-                {indicators.map((indicator) => (
-                    <IndicatorCard key={indicator.id} indicator={indicator} />
+                {indicatorData.analysis.map((indicator) => (
+                    <AnalysisIndicatorCard key={indicator.id} indicator={indicator} />
                 ))}
             </div>
         </section>
@@ -308,14 +409,11 @@ function Top3AnalysisSection({
     onIndicatorClick,
 }: {
     investmentStyle: InvestmentStyle;
-    onIndicatorClick: (indicator: IndicatorInfo) => void;
+    onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
 }) {
-    const indicators = getIndicatorsByStyle(investmentStyle).slice(0, 3);
-    const rankMeta = [
-        { label: "First Rank", color: "#FFD700" },
-        { label: "Second Rank", color: "#C0C0C0" },
-        { label: "Third Rank", color: "#CD7F32" },
-    ];
+    const indicatorData = getIndicatorsByStyle(investmentStyle);
+    const indicators = indicatorData.top3;
+    const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
     const handleGuideClick = () => {
         onIndicatorClick({
@@ -332,7 +430,7 @@ function Top3AnalysisSection({
     };
 
     return (
-        <section className="flex w-full flex-col gap-[16px]" style={{ paddingInline: "20px" }}>
+        <section className="flex w-full flex-col gap-[8px]" style={{ paddingInline: "20px" }}>
             <div
                 className="flex items-center justify-between body-3"
                 style={{ color: "var(--achromatic-500)" }}
@@ -349,15 +447,8 @@ function Top3AnalysisSection({
             </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
                 {indicators.map((indicator, index) => {
-                    const meta = rankMeta[index] ?? rankMeta[rankMeta.length - 1];
-                    return (
-                        <IndicatorCard
-                            key={indicator.id}
-                            indicator={indicator}
-                            crownColor={meta.color}
-                            rankLabel={meta.label}
-                        />
-                    );
+                    const crownColor = rankColors[index] ?? rankColors[rankColors.length - 1];
+                    return <Top3IndicatorCard key={indicator.id} indicator={indicator} crownColor={crownColor} />;
                 })}
             </div>
         </section>
@@ -374,47 +465,85 @@ function TradeItem({ trade }: { trade: Trade }) {
 
     return (
         <div className="rounded-2xl bg-[#f8f9fb] p-4">
-            <p className="text-base font-semibold text-[#151b26]">
+            <p className="title-3 text-[#151b26]">
                 {trade.quantity}주 {isSell ? "판매" : "구매"}
             </p>
-            {trade.profit !== undefined && trade.profitPercent !== undefined && (
-                <p className={`mt-1 text-sm font-semibold ${profitColor}`}>
+            {isSell && trade.profit !== undefined && trade.profitPercent !== undefined ? (
+                <p
+                    className="mt-1 title-3"
+                    style={{ color: trade.profit > 0 ? "var(--component-red)" : "var(--component-blue)" }}
+                >
                     {trade.profit > 0 ? "+" : ""}
                     {trade.profit.toLocaleString()}원 ({trade.profitPercent > 0 ? "+" : ""}
                     {trade.profitPercent}%)
                 </p>
-            )}
-            <div className="mt-2 flex items-center gap-1 text-[11px] text-[#9a9ea9]">
-                <TradeMeta label={trade.time} />
-                <span>·</span>
-                <TradeMeta label="1주당" />
-                <span>{trade.pricePerShare.toLocaleString()}원</span>
-            </div>
+            ) : null}
+            <p className="mt-2 label-3" style={{ color: "var(--achromatic-500)" }}>
+                1주당 {trade.pricePerShare.toLocaleString()}원
+            </p>
         </div>
     );
 }
 
-function TradingHistorySection() {
+function TradingHistorySection({
+    onGuideClick,
+    history,
+}: {
+    onGuideClick: (info: IndicatorGuideInfo) => void;
+    history: DayTrading[];
+}) {
+    const referenceLabel = getTop3ReferenceLabel();
+    const entries = history.filter((day) => day.trades.length > 0);
     return (
         <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
-            <div className="flex items-center justify-between text-xs text-[#9a9ea9]">
-                <span>오늘</span>
-                <span className="flex items-center gap-1">
+            <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
+                <span className="body-3">{referenceLabel} 20:30분 기준</span>
+                <button
+                    type="button"
+                    className="flex items-center gap-[2px]"
+                    onClick={() =>
+                        onGuideClick({
+                            title: "AI 거래 내역 안내",
+                            description: "AI 거래 내역은 실제 매매가 아닌 모델 기반 시뮬레이션입니다.",
+                            fullDescription:
+                                "리브리 모델이 추천 전략대로 거래했다면 어떤 수익을 기대할 수 있는지를 가정한 결과입니다. 실제 매매가 아니며, 사용자의 초기 투자금과 시장 데이터에 기반해 산출한 모의 성과입니다.",
+                            interpretationPoints: [
+                                "AI 거래 내역은 실제로 실행된 거래가 아닙니다.",
+                                "사용자의 초기 투자금으로 리브리 추천을 따른 경우의 가상 수익입니다.",
+                                "참고용 정보이며 매매 판단은 사용자 책임 하에 진행해야 합니다.",
+                                "",
+                                "AI 거래 내역은 어떻게 추가되나요?",
+                                "- 리브리가 '보유'를 추천한 경우엔 '거래 내역 변화 없음'이 표시됩니다.",
+                                "- 리브리가 '매수'를 추천한 경우엔 다음 날 저가에 구매한 것으로 표시됩니다.",
+                                "- 리브리가 '매도'를 추천한 경우엔 다음 날 고가에 판매한 것으로 표시됩니다.",
+                            ],
+                        })
+                    }
+                >
                     <span>AI 거래 내역 안내</span>
-                    <InfoIcon className="h-4 w-4 text-[#b0b4bd]" />
-                </span>
+                    <InfoIcon className="h-[16px] w-[16px] text-[#b0b4bd]" aria-hidden />
+                </button>
             </div>
             <div className="flex flex-col gap-6">
-                {mockTradingHistory.map((day) => (
-                    <div key={day.date} className="flex flex-col gap-3">
-                        <p className="text-xs text-[#9a9ea9]">{day.date}</p>
-                        <div className="flex flex-col gap-3">
-                            {day.trades.map((trade, index) => (
-                                <TradeItem key={`${day.date}-${index}`} trade={trade} />
-                            ))}
+                {entries.length === 0 ? (
+                    <p className="text-xs text-[#9a9ea9]">거래 내역이 없습니다.</p>
+                ) : (
+                    entries.map((day) => (
+                        <div key={day.date} className="flex flex-col gap-3">
+                            <p
+                                className="body-3"
+                                style={{ color: "var(--achromatic-500)", marginTop: "16px", marginBottom: "8px" }}
+                            >
+                                {day.date}
+                            </p>
+                            <div className="flex flex-col gap-3">
+                                {day.trades.map((trade, index) => (
+                                    <TradeItem key={`${day.date}-${index}`} trade={trade} />
+                                ))}
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
         </section>
     );
@@ -429,6 +558,7 @@ function StockDetailContent({
     onTabChange,
     onIndicatorClick,
     investmentStyle,
+    tradingHistory,
     loading,
     error,
 }: {
@@ -438,8 +568,9 @@ function StockDetailContent({
     aiExplanation: string;
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
-    onIndicatorClick: (indicator: IndicatorInfo) => void;
+    onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
     investmentStyle: InvestmentStyle;
+    tradingHistory: DayTrading[];
     loading: boolean;
     error: string | null;
 }) {
@@ -458,7 +589,7 @@ function StockDetailContent({
                     loading={loading}
                     error={error}
                 />
-                <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "20px" }}>
+                <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "16px" }}>
                     <DetailTabs activeTab={activeTab} onSelect={onTabChange} />
                 </div>
                 {activeTab === "top3" && (
@@ -468,15 +599,20 @@ function StockDetailContent({
                     />
                 )}
                 {activeTab === "analysis" && <IndicatorSection investmentStyle={investmentStyle} />}
-                {activeTab === "trading" && <TradingHistorySection />}
+                {activeTab === "trading" && (
+                    <TradingHistorySection
+                        onGuideClick={onIndicatorClick}
+                        history={tradingHistory}
+                    />
+                )}
             </div>
         </div>
     );
 }
 
-export default function StockDetail({ stockName, investmentStyle, onBack }: StockDetailProps) {
+export default function StockDetail({ stockName, investmentStyle, initialInvestment, onBack }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("analysis");
-    const [selectedIndicator, setSelectedIndicator] = useState<IndicatorInfo | null>(null);
+    const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
     const [aiData, setAiData] = useState({
         recommendation: "분석 중...",
         aiExplanation: "데이터를 분석하고 있습니다...",
@@ -485,6 +621,12 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { modelType } = useInvestmentStyle();
+    const priceSeries = useMemo(() => generateMockPriceSeries(), [stockName]);
+    const actionPlan = useMemo(() => generateRandomActions(priceSeries.length || 5), [priceSeries]);
+    const tradingHistory = useMemo(
+        () => simulateTradingHistory(initialInvestment, priceSeries, actionPlan),
+        [initialInvestment, priceSeries, actionPlan],
+    );
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -496,74 +638,20 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
     };
 
     const getMockPredictionResult = (model: string) => {
-        const mockResults: Record<string, any> = {
+        const mockResults: Record<string, { signal: string; gpt_explanation: string }> = {
             model2: {
                 signal: "buy",
-                confidence_score: 0.75,
                 gpt_explanation:
                     "전반적으로 하락세를 유지하고 있으며, 주가는 추가 하락 가능성이 높습니다. 시장 상황에 대한 신중한 접근과 경계를 유지하여 변동성에 대비하는 것이 중요합니다.",
-                technical_indicators: {
-                    EMA12: 61500,
-                    EMA26: 60800,
-                    MACD: 0.5,
-                    RSI: 65,
-                    Volume: 1500000,
-                },
-            },
-            marl: {
-                signal: "hold",
-                confidence_score: 0.68,
-                gpt_explanation:
-                    "MARL 4-Agent 모델 분석: 단기/장기/위험/감성 에이전트가 종합 분석한 결과, 현재 보유 전략이 적절합니다. 시장 불확실성을 고려한 신중한 접근이 필요합니다.",
-                technical_indicators: {
-                    SMA20: 62000,
-                    MACD: 0.3,
-                    RSI: 58,
-                    Stoch_K: 70,
-                    Volume: 1200000,
-                },
             },
             model3: {
                 signal: "hold",
-                confidence_score: 0.82,
                 gpt_explanation:
-                    "MARL 3-Agent 모델 분석: 안정적인 수익을 목표로 하는 전략으로, 현재 보유가 최적입니다. 리스크를 최소화하며 장기적 관점에서 접근하세요.",
-                technical_indicators: {
-                    DebtRatio: 45.3,
-                    ROE: 15,
-                    PER: 12,
-                    PBR: 1.2,
-                    DividendYield: 3.5,
-                },
+                    "안정적인 수익을 목표로 하는 전략으로, 현재 보유가 최적입니다. 리스크를 최소화하며 장기적 관점에서 접근하세요.",
             },
         };
 
-        return mockResults[model] || mockResults.marl;
-    };
-
-    const getFallbackRecommendation = (model: string) => {
-        const fallbackData: Record<string, any> = {
-            model2: {
-                recommendation: "매수",
-                aiExplanation:
-                    "공격적 투자 성향에 맞는 분석을 진행 중입니다. 높은 수익을 추구하는 전략으로 접근하세요.",
-                indicators: {},
-            },
-            marl: {
-                recommendation: "보유",
-                aiExplanation:
-                    "균형잡힌 투자 전략을 바탕으로 분석 중입니다. 리스크와 수익의 균형을 고려한 접근이 필요합니다.",
-                indicators: {},
-            },
-            model3: {
-                recommendation: "보유",
-                aiExplanation:
-                    "안정적인 투자 전략에 맞는 분석을 진행 중입니다. 장기적 관점에서 안전한 투자를 추천합니다.",
-                indicators: {},
-            },
-        };
-
-        return fallbackData[model] || fallbackData.marl;
+        return mockResults[model] || mockResults.model3;
     };
 
     useEffect(() => {
@@ -606,7 +694,12 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
-                setAiData(getFallbackRecommendation(modelType));
+                const fallback = getMockPredictionResult(modelType);
+                setAiData({
+                    recommendation: translateSignal(fallback.signal),
+                    aiExplanation: fallback.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                    indicators: {},
+                });
             } finally {
                 setLoading(false);
             }
@@ -626,6 +719,7 @@ export default function StockDetail({ stockName, investmentStyle, onBack }: Stoc
                 onTabChange={setActiveTab}
                 onIndicatorClick={setSelectedIndicator}
                 investmentStyle={investmentStyle}
+                tradingHistory={tradingHistory}
                 loading={loading}
                 error={error}
             />

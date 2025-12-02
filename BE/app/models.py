@@ -10,7 +10,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
-    investment_style = Column(String, default="conservative")
+    investment_style = Column(String, default=None, nullable=True)
 
     # [추가] 유저와 포트폴리오 1:1 연결
     portfolio = relationship("Portfolio", back_populates="owner", uselist=False)
