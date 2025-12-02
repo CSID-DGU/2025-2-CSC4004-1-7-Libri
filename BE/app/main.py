@@ -21,6 +21,13 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return db_user
 
+@app.put("/users/{user_id}/investment-style", response_model=schemas.User)
+def update_investment_style(user_id: int, investment: schemas.UserInvestmentUpdate, db: Session = Depends(get_db)):
+    db_user = crud.update_user_investment_style(db, user_id=user_id, investment_style=investment.investment_style)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return db_user
+
 @app.get("/")
 def read_root():
     return {"message": "Database is set up!"}

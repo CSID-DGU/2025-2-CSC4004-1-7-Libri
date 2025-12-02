@@ -18,3 +18,11 @@ def create_user(db: Session, user: schemas.UserCreate):
     db.commit()
     db.refresh(db_user)
     return db_user
+
+def update_user_investment_style(db: Session, user_id: int, investment_style: str):
+    db_user = get_user(db, user_id)
+    if db_user:
+        db_user.investment_style = investment_style
+        db.commit()
+        db.refresh(db_user)
+    return db_user
