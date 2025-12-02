@@ -275,6 +275,9 @@ function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorC
 }
 
 function AnalysisIndicatorCard({ indicator }: { indicator: IndicatorInfo }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const toggleOpen = () => setIsOpen((prev) => !prev);
+
     return (
         <div
             className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
@@ -284,9 +287,37 @@ function AnalysisIndicatorCard({ indicator }: { indicator: IndicatorInfo }) {
             <p className="body-2 text-[#414651]" style={{ marginTop: "12px" }}>
                 {indicator.shortDescription}
             </p>
-            <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)", marginTop: "16px" }} />
-            <div className="mt-2 flex justify-center">
-                <CaretDownIcon className="h-[20px] w-[20px]" style={{ color: "var(--achromatic-500)", marginTop: "8px"}} />
+            {isOpen && (
+                <div className="flex flex-col gap-[26px] text-sm text-[#4b4f59]" style={{ marginTop: "24px" }}>
+                    <p className="title-4 text-[#444951]">💡 해석 포인트</p>
+                    <ul className="flex list-disc flex-col body-2 gap-2" style={{ paddingLeft: "24px", paddingTop: "8px" }}>
+                        {indicator.interpretationPoints.map((point, idx) => (
+                            <li key={idx} className="leading-6">
+                                {point}
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+            <div
+                className="flex flex-col items-center justify-center"
+                style={{ marginTop: "16px", borderTop: "0.5px solid var(--achromatic-200)", paddingTop: "4px" }}
+            >
+                <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    onClick={toggleOpen}
+                    className="flex items-center justify-center"
+                    style={{ padding: "4px"}}
+                >
+                    <CaretDownIcon
+                        className="h-[20px] w-[20px] transition-transform duration-200"
+                        style={{
+                            color: "var(--achromatic-500)",
+                            transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        }}
+                    />
+                </button>
             </div>
         </div>
     );
