@@ -9,7 +9,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
-    investment_style = Column(String, default="conservative")
+    investment_style = Column(String, default=None, nullable=True)
 
 # ---------------------------------------------------------------------
 # 1) 기술 지표 테이블 (TechnicalIndicator)
