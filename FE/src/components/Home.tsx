@@ -20,6 +20,13 @@ interface Stock {
     logoUrl?: string;
 }
 
+interface StockPerformance {
+    profit: number;
+    profitRate: number;
+}
+
+type StockPerformanceMap = Record<string, StockPerformance>;
+
 interface HomeProps {
     initialInvestment: number;
     stocks: Stock[];
@@ -150,18 +157,14 @@ function StockLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
 function StockCard({
     stock,
     onClick,
-    initialInvestment,
+    aiProfit,
+    aiProfitRate,
 }: {
     stock: Stock;
     onClick: (stockName: string) => void;
-    initialInvestment: number;
+    aiProfit: number;
+    aiProfitRate: number;
 }) {
-    const { totalProfit: aiProfit } = useMemo(() => {
-        const priceSeries = generateMockPriceSeries(stock.name);
-        const actions = generateRandomActions(stock.name, priceSeries.length || 5);
-        return simulateTradingHistory(initialInvestment, priceSeries, actions);
-    }, [stock.name, initialInvestment]);
-    const aiProfitRate = initialInvestment > 0 ? (aiProfit / initialInvestment) * 100 : 0;
     const { text, color } = formatProfitText(aiProfit, aiProfitRate);
 
     return (
@@ -201,11 +204,11 @@ function StockCard({
 function StockList({
     stocks,
     onStockClick,
-    initialInvestment,
+    stockPerformance,
 }: {
     stocks: Stock[];
     onStockClick: (stock: string) => void;
-    initialInvestment: number;
+    stockPerformance: StockPerformanceMap;
 }) {
     if (!stocks.length) {
         return (
@@ -222,7 +225,8 @@ function StockList({
                     key={stock.name}
                     stock={stock}
                     onClick={onStockClick}
-                    initialInvestment={initialInvestment}
+                    aiProfit={stockPerformance[stock.name]?.profit ?? 0}
+                    aiProfitRate={stockPerformance[stock.name]?.profitRate ?? 0}
                 />
             ))}
         </div>
@@ -251,12 +255,12 @@ function StockSection({
     stocks,
     onAddStock,
     onStockClick,
-    initialInvestment,
+    stockPerformance,
 }: {
     stocks: Stock[];
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
-    initialInvestment: number;
+    stockPerformance: StockPerformanceMap;
 }) {
     return (
         <section className="flex flex-col mt-[28px]">
@@ -264,7 +268,11 @@ function StockSection({
                 종목별 상세</h2>
             <div className="mt-[10px] flex flex-col">
                 <div style={{ marginBottom: "12px" }}>
-                    <StockList stocks={stocks} onStockClick={onStockClick} initialInvestment={initialInvestment} />
+                    <StockList
+                        stocks={stocks}
+                        onStockClick={onStockClick}
+                        stockPerformance={stockPerformance}
+                    />
                 </div>
                 <AddStockButton onAddStock={onAddStock} />
             </div>
@@ -280,6 +288,7 @@ function HomeContent({
     onAddStock,
     onStockClick,
     onOpenSettings,
+    stockPerformance,
 }: {
     initialInvestment: number;
     aiTradeProfit: number;
@@ -288,6 +297,7 @@ function HomeContent({
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
     onOpenSettings: () => void;
+    stockPerformance: StockPerformanceMap;
 }) {
     return (
         <div className="absolute content-stretch flex flex-col gap-[12px] items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] pb-16">
@@ -307,7 +317,7 @@ function HomeContent({
                         stocks={stocks}
                         onAddStock={onAddStock}
                         onStockClick={onStockClick}
-                        initialInvestment={initialInvestment}
+                        stockPerformance={stockPerformance}
                     />
                 </div>
             </div>
@@ -326,11 +336,37 @@ export default function Home({
     const [selectedStockName, setSelectedStockName] = useState("");
 
     const summaryStockName = stocks[0]?.name || "삼성전자";
-    const { totalProfit: aiTradeProfit } = useMemo(() => {
+    const fallbackPerformance = useMemo(() => {
         const priceSeries = generateMockPriceSeries(summaryStockName);
         const actions = generateRandomActions(summaryStockName, priceSeries.length || 5);
-        return simulateTradingHistory(initialInvestment, priceSeries, actions);
+        const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
+        const profitRate = initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0;
+        return { profit: totalProfit, profitRate };
     }, [initialInvestment, summaryStockName]);
+
+    const stockPerformance = useMemo<StockPerformanceMap>(() => {
+        if (!stocks.length) {
+            return {
+                [summaryStockName]: { ...fallbackPerformance },
+            };
+        }
+
+        return stocks.reduce<StockPerformanceMap>((acc, stock) => {
+            const priceSeries = generateMockPriceSeries(stock.name);
+            const actions = generateRandomActions(stock.name, priceSeries.length || 5);
+            const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
+            acc[stock.name] = {
+                profit: totalProfit,
+                profitRate: initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0,
+            };
+            return acc;
+        }, {});
+    }, [stocks, initialInvestment, summaryStockName, fallbackPerformance]);
+
+    const aiTradeProfit = useMemo(
+        () => Object.values(stockPerformance).reduce((acc, { profit }) => acc + profit, 0),
+        [stockPerformance],
+    );
     const aiTradeProfitRate = initialInvestment > 0 ? (aiTradeProfit / initialInvestment) * 100 : 0;
 
     const handleStockClick = (stockName: string) => {
@@ -364,6 +400,7 @@ export default function Home({
                 onAddStock={onAddStock}
                 onStockClick={handleStockClick}
                 onOpenSettings={onOpenSettings}
+                stockPerformance={stockPerformance}
             />
         </div>
     );
