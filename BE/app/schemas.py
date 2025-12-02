@@ -5,10 +5,12 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    investment_style: str | None = "conservative"
 
 class User(UserBase):
     id: int
     is_active: bool
+    investment_style: str | None = None
 
     class Config:
         orm_mode = True
