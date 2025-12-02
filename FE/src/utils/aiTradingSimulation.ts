@@ -5,15 +5,18 @@ export interface PriceDay {
     high: number;
     low: number;
     close: number;
+    highTime: string;
+    lowTime: string;
 }
 
 export interface SimulatedTrade {
-    type: "buy" | "sell";
+    type: "buy" | "sell" | "hold";
     quantity: number;
     pricePerShare: number;
     time: string;
     profit?: number;
     profitPercent?: number;
+    reason?: string;
 }
 
 export interface DayTrading {
@@ -35,6 +38,17 @@ function hashStringToSeed(value: string) {
 function pseudoRandom(seed: number) {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
+}
+
+function generateIntradayTime(seed: number) {
+    const tradingStartMinutes = 9 * 60;
+    const tradingEndMinutes = 15 * 60 + 30;
+    const range = tradingEndMinutes - tradingStartMinutes;
+    const randomMinutes = Math.floor(pseudoRandom(seed) * (range + 1));
+    const totalMinutes = tradingStartMinutes + randomMinutes;
+    const hours = String(Math.floor(totalMinutes / 60)).padStart(2, "0");
+    const minutes = String(totalMinutes % 60).padStart(2, "0");
+    return `${hours}:${minutes}`;
 }
 
 export function formatRelativeDayLabel(offset: number) {
@@ -64,6 +78,8 @@ export function generateMockPriceSeries(stockName: string, days = 30, basePrice 
             high: dailyHigh,
             low: dailyLow,
             close: dailyClose,
+            highTime: generateIntradayTime(daySeed + 4),
+            lowTime: generateIntradayTime(daySeed + 5),
         });
     }
 
@@ -94,7 +110,7 @@ export function simulateTradingHistory(
         const trades: SimulatedTrade[] = [];
 
         if (action === "buy") {
-            const maxAffordable = Math.min(10, Math.floor(cash / day.low));
+            const maxAffordable = Math.floor(cash / day.low);
             if (maxAffordable > 0) {
                 const cost = maxAffordable * day.low;
                 cash -= cost;
@@ -104,11 +120,19 @@ export function simulateTradingHistory(
                     type: "buy",
                     quantity: maxAffordable,
                     pricePerShare: day.low,
-                    time: "10:05",
+                    time: day.lowTime,
+                });
+            } else {
+                trades.push({
+                    type: "hold",
+                    quantity: 0,
+                    pricePerShare: day.low,
+                    time: day.lowTime,
+                    reason: "투자 가능 금액이 부족해 거래 내역 변화 없음",
                 });
             }
         } else if (action === "sell") {
-            const sellQuantity = Math.min(10, holdings);
+            const sellQuantity = holdings;
             if (sellQuantity > 0) {
                 const averageCostPerShare = holdings > 0 ? totalCost / holdings : 0;
                 const costBasis = averageCostPerShare * sellQuantity;
@@ -126,11 +150,27 @@ export function simulateTradingHistory(
                     type: "sell",
                     quantity: sellQuantity,
                     pricePerShare: day.high,
-                    time: "14:25",
+                    time: day.highTime,
                     profit: Math.round(profit),
                     profitPercent: parseFloat(profitPercent.toFixed(1)),
                 });
+            } else {
+                trades.push({
+                    type: "hold",
+                    quantity: 0,
+                    pricePerShare: day.high,
+                    time: day.highTime,
+                    reason: "보유 수량이 없어 '매수' 의견이 나올 때까지 거래 내역 변화 없음",
+                });
             }
+        } else {
+            trades.push({
+                type: "hold",
+                quantity: holdings,
+                pricePerShare: day.close,
+                time: day.lowTime,
+                reason: "리브리가 보유 전략을 유지했습니다. 거래 내역 변화 없음",
+            });
         }
 
         return {

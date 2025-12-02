@@ -348,6 +348,17 @@ function Top3AnalysisSection({
 }
 
 function TradeItem({ trade }: { trade: SimulatedTrade }) {
+    if (trade.type === "hold") {
+        return (
+            <div className="rounded-2xl bg-[#f8f9fb] p-4">
+                <p className="title-3 text-[#151b26]">거래 내역 변화 없음</p>
+                <p className="mt-1 body-3 text-[#6b6e74]">
+                    {trade.reason ?? "리브리 전략에 따라 변동이 없습니다."}
+                </p>
+            </div>
+        );
+    }
+
     const isSell = trade.type === "sell";
 
     return (
@@ -365,9 +376,12 @@ function TradeItem({ trade }: { trade: SimulatedTrade }) {
                     {trade.profitPercent}%)
                 </p>
             ) : null}
-            <p className="mt-2 label-3" style={{ color: "var(--achromatic-500)" }}>
+            <span
+                className="label-3"
+                style={{ color: "var(--achromatic-500)", display: "inline-block", marginTop: "4px" }}
+            >
                 1주당 {trade.pricePerShare.toLocaleString()}원
-            </p>
+            </span>
         </div>
     );
 }
@@ -380,7 +394,12 @@ function TradingHistorySection({
     history: DayTrading[];
 }) {
     const referenceLabel = getTop3ReferenceLabel();
-    const entries = history.filter((day) => day.trades.length > 0);
+    const entries = history
+        .map((day) => ({
+            ...day,
+            trades: day.trades.filter((trade) => trade.type !== "hold"),
+        }))
+        .filter((day) => day.trades.length > 0);
     return (
         <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
             <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
@@ -401,8 +420,8 @@ function TradingHistorySection({
                                 "",
                                 "AI 거래 내역은 어떻게 추가되나요?",
                                 "- 리브리가 '보유'를 추천한 경우엔 '거래 내역 변화 없음'이 표시됩니다.",
-                                "- 리브리가 '매수'를 추천한 경우엔 다음 날 저가에 구매한 것으로 표시됩니다.",
-                                "- 리브리가 '매도'를 추천한 경우엔 다음 날 고가에 판매한 것으로 표시됩니다.",
+                                "- 리브리가 '매수'를 추천한 경우엔 해당 일 최저가(최초 형성 시각) 기준으로 보유 현금이 허용하는 한 매수합니다.",
+                                "- 리브리가 '매도'를 추천한 경우엔 해당 일 최고가(최초 형성 시각) 기준으로 보유 수량 전량을 매도합니다.",
                             ],
                         })
                     }
