@@ -284,7 +284,7 @@ function AnalysisIndicatorCard({ indicator }: { indicator: IndicatorInfo }) {
             style={{ padding: "20px 20px 12px" }}
         >
             <span className="title-3 text-[#151b26] tracking-[0.16px]">{indicator.title}</span>
-            <p className="body-2 text-[#414651]" style={{ marginTop: "12px" }}>
+            <p className="body-2 text-[#414651]" style={{ marginTop: "8px" }}>
                 {indicator.shortDescription}
             </p>
             {isOpen && (
