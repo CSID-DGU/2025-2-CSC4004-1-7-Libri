@@ -341,6 +341,7 @@ export default function Home({
             <StockDetail
                 stockName={selectedStockName}
                 investmentStyle={investmentStyle}
+                initialInvestment={initialInvestment}
                 onBack={handleBackToList}
             />
         );
