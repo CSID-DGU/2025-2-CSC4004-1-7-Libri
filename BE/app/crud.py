@@ -20,6 +20,14 @@ def create_user(db: Session, user: schemas.UserCreate):
     db.refresh(db_user)
     return db_user
 
+def update_user_investment_style(db: Session, user_id: int, investment_style: str):
+    db_user = get_user(db, user_id)
+    if db_user:
+        db_user.investment_style = investment_style
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
 # 1. 포트폴리오 가져오기 (없으면 자동 생성)
 def get_portfolio_by_user(db: Session, user_id: int):
     portfolio = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()

@@ -7,6 +7,9 @@ class UserCreate(UserBase):
     password: str
     investment_style: str | None = "conservative"
 
+class UserInvestmentUpdate(BaseModel):
+    investment_style: str
+
 class User(UserBase):
     id: int
     is_active: bool
