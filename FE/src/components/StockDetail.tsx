@@ -10,6 +10,13 @@ import IndicatorModal from "./IndicatorModal";
 import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsByStyle";
 import { type InvestmentStyle, useInvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
+import {
+    DayTrading,
+    type SimulatedTrade,
+    generateMockPriceSeries,
+    generateRandomActions,
+    simulateTradingHistory,
+} from "@/utils/aiTradingSimulation";
 
 export type TabType = "top3" | "analysis" | "trading";
 
@@ -25,121 +32,6 @@ interface StockDetailProps {
     investmentStyle: InvestmentStyle;
     initialInvestment: number;
     onBack: () => void;
-}
-
-interface Trade {
-    type: "buy" | "sell";
-    quantity: number;
-    pricePerShare: number;
-    time: string;
-    profit?: number;
-    profitPercent?: number;
-}
-
-interface DayTrading {
-    date: string;
-    trades: Trade[];
-}
-
-type TradeAction = "buy" | "sell" | "hold";
-
-interface PriceDay {
-    label: string;
-    high: number;
-    low: number;
-    close: number;
-}
-
-function formatRelativeDayLabel(offset: number) {
-    if (offset === 0) return "오늘";
-    if (offset === 1) return "어제";
-    const date = new Date();
-    date.setDate(date.getDate() - offset);
-    const month = date.getMonth() + 1;
-    const day = date.getDate();
-    return `${month}월 ${day}일`;
-}
-
-const ACTION_CHOICES: TradeAction[] = ["buy", "sell", "hold"];
-
-function generateRandomActions(length: number): TradeAction[] {
-    return Array.from({ length }, () => ACTION_CHOICES[Math.floor(Math.random() * ACTION_CHOICES.length)]);
-}
-
-function generateMockPriceSeries(days = 30, basePrice = 70000): PriceDay[] {
-    const series: PriceDay[] = [];
-    let priceCursor = basePrice;
-    for (let i = 0; i < days; i++) {
-        const label = formatRelativeDayLabel(i);
-        const dailyDrift = (Math.random() - 0.5) * 2000;
-        priceCursor = Math.max(45000, priceCursor + dailyDrift);
-        const low = Math.max(42000, Math.round(priceCursor - (Math.random() * 1500 + 500)));
-        const high = Math.round(priceCursor + (Math.random() * 1800 + 600));
-        const close = Math.round((high + low) / 2);
-        series.push({ label, high, low, close });
-    }
-    return series;
-}
-
-function simulateTradingHistory(
-    initialInvestment: number,
-    priceSeries: PriceDay[],
-    actions: TradeAction[],
-): DayTrading[] {
-    let cash = initialInvestment;
-    let holdings = 0;
-    let totalCost = 0;
-
-    return priceSeries.map((day, index) => {
-        const action = actions[index] ?? "hold";
-        const trades: Trade[] = [];
-
-        if (action === "buy") {
-            const maxAffordable = Math.min(10, Math.floor(cash / day.low));
-            if (maxAffordable > 0) {
-                const cost = maxAffordable * day.low;
-                cash -= cost;
-                holdings += maxAffordable;
-                totalCost += cost;
-                trades.push({
-                    type: "buy",
-                    quantity: maxAffordable,
-                    pricePerShare: day.low,
-                    time: "10:05",
-                });
-            }
-        } else if (action === "sell") {
-            const sellQuantity = Math.min(10, holdings);
-            if (sellQuantity > 0) {
-                const averageCostPerShare = holdings > 0 ? totalCost / holdings : 0;
-                const costBasis = averageCostPerShare * sellQuantity;
-                const revenue = sellQuantity * day.high;
-                const profit = revenue - costBasis;
-                const profitPercent =
-                    averageCostPerShare > 0
-                        ? ((day.high - averageCostPerShare) / averageCostPerShare) * 100
-                        : 0;
-
-                cash += revenue;
-                holdings -= sellQuantity;
-                totalCost -= costBasis;
-
-                trades.push({
-                    type: "sell",
-                    quantity: sellQuantity,
-                    pricePerShare: day.high,
-                    time: "14:25",
-                    profit: Math.round(profit),
-                    profitPercent: parseFloat(profitPercent.toFixed(1)),
-                });
-            }
-        }
-
-        return {
-            date: day.label,
-            trades,
-        };
-    });
 }
 
 function SparklineChart() {
@@ -455,13 +347,8 @@ function Top3AnalysisSection({
     );
 }
 
-function TradeMeta({ label }: { label: string }) {
-    return <span className="text-[11px] text-[#9a9ea9] tracking-[0.2px]">{label}</span>;
-}
-
-function TradeItem({ trade }: { trade: Trade }) {
+function TradeItem({ trade }: { trade: SimulatedTrade }) {
     const isSell = trade.type === "sell";
-    const profitColor = trade.profit && trade.profit > 0 ? "text-[#f3646f]" : "text-[#5c87f2]";
 
     return (
         <div className="rounded-2xl bg-[#f8f9fb] p-4">
@@ -621,9 +508,12 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { modelType } = useInvestmentStyle();
-    const priceSeries = useMemo(() => generateMockPriceSeries(), [stockName]);
-    const actionPlan = useMemo(() => generateRandomActions(priceSeries.length || 5), [priceSeries]);
-    const tradingHistory = useMemo(
+    const priceSeries = useMemo(() => generateMockPriceSeries(stockName), [stockName]);
+    const actionPlan = useMemo(
+        () => generateRandomActions(stockName, priceSeries.length || 5),
+        [stockName, priceSeries.length],
+    );
+    const { history: tradingHistory } = useMemo(
         () => simulateTradingHistory(initialInvestment, priceSeries, actionPlan),
         [initialInvestment, priceSeries, actionPlan],
     );

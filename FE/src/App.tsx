@@ -25,8 +25,6 @@ interface Stock {
     quantity: number;
     averagePrice: number;
     totalValue: number;
-    profit: number;
-    profitRate: number;
     logoUrl?: string;
 }
 
@@ -72,8 +70,6 @@ function createStock(form: FormData, logoUrl?: string): Stock {
         quantity,
         averagePrice: price,
         totalValue: quantity * price,
-        profit: 0, // 백엔드에서 계산 예정
-        profitRate: 0, // 백엔드에서 계산 예정
         logoUrl,
     };
 }
