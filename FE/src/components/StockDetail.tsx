@@ -50,8 +50,6 @@ interface PriceDay {
     close: number;
 }
 
-const DEFAULT_ACTION_SEQUENCE: TradeAction[] = ["buy", "sell", "hold", "buy", "sell"];
-
 function formatRelativeDayLabel(offset: number) {
     if (offset === 0) return "오늘";
     if (offset === 1) return "어제";
@@ -62,7 +60,13 @@ function formatRelativeDayLabel(offset: number) {
     return `${month}월 ${day}일`;
 }
 
-function generateMockPriceSeries(days = 5, basePrice = 70000): PriceDay[] {
+const ACTION_CHOICES: TradeAction[] = ["buy", "sell", "hold"];
+
+function generateRandomActions(length: number): TradeAction[] {
+    return Array.from({ length }, () => ACTION_CHOICES[Math.floor(Math.random() * ACTION_CHOICES.length)]);
+}
+
+function generateMockPriceSeries(days = 30, basePrice = 70000): PriceDay[] {
     const series: PriceDay[] = [];
     let priceCursor = basePrice;
     for (let i = 0; i < days; i++) {
@@ -258,7 +262,7 @@ const TAB_META: {
 }[] = [
     { id: "top3", label: "TOP3 분석" },
     { id: "analysis", label: "지표 분석" },
-    { id: "trading", label: "AI 거래 내역", icon: AiSparkIcon },
+    { id: "trading", label: "AI 거래 내역" },
 ];
 
 function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (tab: TabType) => void }) {
@@ -461,22 +465,22 @@ function TradeItem({ trade }: { trade: Trade }) {
 
     return (
         <div className="rounded-2xl bg-[#f8f9fb] p-4">
-            <p className="text-base font-semibold text-[#151b26]">
+            <p className="title-3 text-[#151b26]">
                 {trade.quantity}주 {isSell ? "판매" : "구매"}
             </p>
-            {trade.profit !== undefined && trade.profitPercent !== undefined && (
-                <p className={`mt-1 text-sm font-semibold ${profitColor}`}>
+            {isSell && trade.profit !== undefined && trade.profitPercent !== undefined ? (
+                <p
+                    className="mt-1 title-3"
+                    style={{ color: trade.profit > 0 ? "var(--component-red)" : "var(--component-blue)" }}
+                >
                     {trade.profit > 0 ? "+" : ""}
                     {trade.profit.toLocaleString()}원 ({trade.profitPercent > 0 ? "+" : ""}
                     {trade.profitPercent}%)
                 </p>
-            )}
-            <div className="mt-2 flex items-center gap-1 text-[11px] text-[#9a9ea9]">
-                <TradeMeta label={trade.time} />
-                <span>·</span>
-                <TradeMeta label="1주당" />
-                <span>{trade.pricePerShare.toLocaleString()}원</span>
-            </div>
+            ) : null}
+            <p className="mt-2 label-3" style={{ color: "var(--achromatic-500)" }}>
+                1주당 {trade.pricePerShare.toLocaleString()}원
+            </p>
         </div>
     );
 }
@@ -489,6 +493,7 @@ function TradingHistorySection({
     history: DayTrading[];
 }) {
     const referenceLabel = getTop3ReferenceLabel();
+    const entries = history.filter((day) => day.trades.length > 0);
     return (
         <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
             <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
@@ -506,6 +511,11 @@ function TradingHistorySection({
                                 "AI 거래 내역은 실제로 실행된 거래가 아닙니다.",
                                 "사용자의 초기 투자금으로 리브리 추천을 따른 경우의 가상 수익입니다.",
                                 "참고용 정보이며 매매 판단은 사용자 책임 하에 진행해야 합니다.",
+                                "",
+                                "AI 거래 내역은 어떻게 추가되나요?",
+                                "- 리브리가 '보유'를 추천한 경우엔 '거래 내역 변화 없음'이 표시됩니다.",
+                                "- 리브리가 '매수'를 추천한 경우엔 다음 날 저가에 구매한 것으로 표시됩니다.",
+                                "- 리브리가 '매도'를 추천한 경우엔 다음 날 고가에 판매한 것으로 표시됩니다.",
                             ],
                         })
                     }
@@ -515,10 +525,10 @@ function TradingHistorySection({
                 </button>
             </div>
             <div className="flex flex-col gap-6">
-                {history.length === 0 ? (
+                {entries.length === 0 ? (
                     <p className="text-xs text-[#9a9ea9]">거래 내역이 없습니다.</p>
                 ) : (
-                    history.map((day) => (
+                    entries.map((day) => (
                         <div key={day.date} className="flex flex-col gap-3">
                             <p
                                 className="body-3"
@@ -526,15 +536,11 @@ function TradingHistorySection({
                             >
                                 {day.date}
                             </p>
-                            {day.trades.length === 0 ? (
-                                <p className="text-xs text-[#b0b4bd]">거래 내역 변화 없음</p>
-                            ) : (
-                                <div className="flex flex-col gap-3">
-                                    {day.trades.map((trade, index) => (
-                                        <TradeItem key={`${day.date}-${index}`} trade={trade} />
-                                    ))}
-                                </div>
-                            )}
+                            <div className="flex flex-col gap-3">
+                                {day.trades.map((trade, index) => (
+                                    <TradeItem key={`${day.date}-${index}`} trade={trade} />
+                                ))}
+                            </div>
                         </div>
                     ))
                 )}
@@ -583,7 +589,7 @@ function StockDetailContent({
                     loading={loading}
                     error={error}
                 />
-                <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "12px" }}>
+                <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "16px" }}>
                     <DetailTabs activeTab={activeTab} onSelect={onTabChange} />
                 </div>
                 {activeTab === "top3" && (
@@ -615,10 +621,12 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { modelType } = useInvestmentStyle();
-    const tradingHistory = useMemo(() => {
-        const priceSeries = generateMockPriceSeries();
-        return simulateTradingHistory(initialInvestment, priceSeries, DEFAULT_ACTION_SEQUENCE);
-    }, [initialInvestment, stockName]);
+    const priceSeries = useMemo(() => generateMockPriceSeries(), [stockName]);
+    const actionPlan = useMemo(() => generateRandomActions(priceSeries.length || 5), [priceSeries]);
+    const tradingHistory = useMemo(
+        () => simulateTradingHistory(initialInvestment, priceSeries, actionPlan),
+        [initialInvestment, priceSeries, actionPlan],
+    );
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -630,74 +638,20 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
     };
 
     const getMockPredictionResult = (model: string) => {
-        const mockResults: Record<string, any> = {
+        const mockResults: Record<string, { signal: string; gpt_explanation: string }> = {
             model2: {
                 signal: "buy",
-                confidence_score: 0.75,
                 gpt_explanation:
                     "전반적으로 하락세를 유지하고 있으며, 주가는 추가 하락 가능성이 높습니다. 시장 상황에 대한 신중한 접근과 경계를 유지하여 변동성에 대비하는 것이 중요합니다.",
-                technical_indicators: {
-                    EMA12: 61500,
-                    EMA26: 60800,
-                    MACD: 0.5,
-                    RSI: 65,
-                    Volume: 1500000,
-                },
-            },
-            marl: {
-                signal: "hold",
-                confidence_score: 0.68,
-                gpt_explanation:
-                    "MARL 4-Agent 모델 분석: 단기/장기/위험/감성 에이전트가 종합 분석한 결과, 현재 보유 전략이 적절합니다. 시장 불확실성을 고려한 신중한 접근이 필요합니다.",
-                technical_indicators: {
-                    SMA20: 62000,
-                    MACD: 0.3,
-                    RSI: 58,
-                    Stoch_K: 70,
-                    Volume: 1200000,
-                },
             },
             model3: {
                 signal: "hold",
-                confidence_score: 0.82,
                 gpt_explanation:
-                    "MARL 3-Agent 모델 분석: 안정적인 수익을 목표로 하는 전략으로, 현재 보유가 최적입니다. 리스크를 최소화하며 장기적 관점에서 접근하세요.",
-                technical_indicators: {
-                    DebtRatio: 45.3,
-                    ROE: 15,
-                    PER: 12,
-                    PBR: 1.2,
-                    DividendYield: 3.5,
-                },
+                    "안정적인 수익을 목표로 하는 전략으로, 현재 보유가 최적입니다. 리스크를 최소화하며 장기적 관점에서 접근하세요.",
             },
         };
 
-        return mockResults[model] || mockResults.marl;
-    };
-
-    const getFallbackRecommendation = (model: string) => {
-        const fallbackData: Record<string, any> = {
-            model2: {
-                recommendation: "매수",
-                aiExplanation:
-                    "공격적 투자 성향에 맞는 분석을 진행 중입니다. 높은 수익을 추구하는 전략으로 접근하세요.",
-                indicators: {},
-            },
-            marl: {
-                recommendation: "보유",
-                aiExplanation:
-                    "균형잡힌 투자 전략을 바탕으로 분석 중입니다. 리스크와 수익의 균형을 고려한 접근이 필요합니다.",
-                indicators: {},
-            },
-            model3: {
-                recommendation: "보유",
-                aiExplanation:
-                    "안정적인 투자 전략에 맞는 분석을 진행 중입니다. 장기적 관점에서 안전한 투자를 추천합니다.",
-                indicators: {},
-            },
-        };
-
-        return fallbackData[model] || fallbackData.marl;
+        return mockResults[model] || mockResults.model3;
     };
 
     useEffect(() => {
@@ -740,7 +694,12 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
-                setAiData(getFallbackRecommendation(modelType));
+                const fallback = getMockPredictionResult(modelType);
+                setAiData({
+                    recommendation: translateSignal(fallback.signal),
+                    aiExplanation: fallback.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                    indicators: {},
+                });
             } finally {
                 setLoading(false);
             }
