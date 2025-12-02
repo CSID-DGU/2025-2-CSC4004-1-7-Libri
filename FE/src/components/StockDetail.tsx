@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import Header from "@/components/layout/Header";
 import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
+import CaretDownIcon from "@/assets/icons/caret-down.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import InfoIcon from "@/assets/icons/info.svg?react";
 import CrownIcon from "@/assets/icons/crown.svg?react";
@@ -251,13 +252,12 @@ function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (ta
     );
 }
 
-interface IndicatorCardProps {
+interface Top3IndicatorCardProps {
     indicator: ReturnType<typeof getIndicatorsByStyle>[0];
     crownColor?: string;
-    rankLabel?: string;
 }
 
-function IndicatorCard({ indicator, crownColor = "#f5c451", rankLabel }: IndicatorCardProps) {
+function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorCardProps) {
     return (
         <div
             className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
@@ -274,21 +274,32 @@ function IndicatorCard({ indicator, crownColor = "#f5c451", rankLabel }: Indicat
     );
 }
 
+function AnalysisIndicatorCard({ indicator }: { indicator: ReturnType<typeof getIndicatorsByStyle>[0] }) {
+    return (
+        <div
+            className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
+            style={{ padding: "20px 20px 12px" }}
+        >
+            <span className="title-3 text-[#151b26] tracking-[0.16px]">{indicator.title}</span>
+            <p className="body-2 text-[#414651]" style={{ marginTop: "12px" }}>
+                {indicator.shortDescription}
+            </p>
+            <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)", marginTop: "16px" }} />
+            <div className="mt-2 flex justify-center">
+                <CaretDownIcon className="h-[20px] w-[20px]" style={{ color: "var(--achromatic-500)", marginTop: "8px"}} />
+            </div>
+        </div>
+    );
+}
+
 function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyle }) {
     const indicators = getIndicatorsByStyle(investmentStyle);
 
     return (
         <section className="flex w-full flex-col gap-4" style={{ paddingInline: "20px" }}>
-            <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
-                <span>오늘 기준</span>
-                <span className="flex items-center gap-1">
-                    <span>지표 분석 안내</span>
-                    <InfoIcon className="h-4 w-4 text-[#b0b4bd]" />
-                </span>
-            </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
                 {indicators.map((indicator) => (
-                    <IndicatorCard key={indicator.id} indicator={indicator} />
+                    <AnalysisIndicatorCard key={indicator.id} indicator={indicator} />
                 ))}
             </div>
         </section>
@@ -318,11 +329,7 @@ function Top3AnalysisSection({
     onIndicatorClick: (indicator: IndicatorInfo) => void;
 }) {
     const indicators = getIndicatorsByStyle(investmentStyle).slice(0, 3);
-    const rankMeta = [
-        { label: "First Rank", color: "#FFD700" },
-        { label: "Second Rank", color: "#C0C0C0" },
-        { label: "Third Rank", color: "#CD7F32" },
-    ];
+    const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
     const handleGuideClick = () => {
         onIndicatorClick({
@@ -356,15 +363,8 @@ function Top3AnalysisSection({
             </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
                 {indicators.map((indicator, index) => {
-                    const meta = rankMeta[index] ?? rankMeta[rankMeta.length - 1];
-                    return (
-                        <IndicatorCard
-                            key={indicator.id}
-                            indicator={indicator}
-                            crownColor={meta.color}
-                            rankLabel={meta.label}
-                        />
-                    );
+                    const crownColor = rankColors[index] ?? rankColors[rankColors.length - 1];
+                    return <Top3IndicatorCard key={indicator.id} indicator={indicator} crownColor={crownColor} />;
                 })}
             </div>
         </section>
