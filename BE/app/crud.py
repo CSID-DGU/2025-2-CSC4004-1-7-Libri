@@ -28,7 +28,7 @@ def update_user_investment_style(db: Session, user_id: int, investment_style: st
         db.refresh(db_user)
     return db_user
 
-# 1. 포트폴리오 가져오기 (없으면 자동 생성)
+# 포트폴리오 가져오기 (없으면 자동 생성)
 def get_portfolio_by_user(db: Session, user_id: int):
     portfolio = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()
     if not portfolio:
@@ -44,7 +44,7 @@ def get_portfolio_by_user(db: Session, user_id: int):
         db.refresh(portfolio)
     return portfolio
 
-# 2. 보유 주식 추가하기 (매수 로직)
+# 보유 주식 추가하기 (매수 로직)
 def add_holding(db: Session, user_id: int, holding_data: schemas.HoldingCreate):
     portfolio = get_portfolio_by_user(db, user_id)
     
@@ -76,5 +76,68 @@ def add_holding(db: Session, user_id: int, holding_data: schemas.HoldingCreate):
     portfolio.current_capital -= cost
     portfolio.updated_at = datetime.utcnow()
     
+    #투자 기록(History) 저장하기 
+    history_record = models.InvestmentRecord(
+        portfolio_id=portfolio.portfolio_id, # 문자열 ID 사용
+        model_type="manual_trade",           # 사용자가 직접 매수함
+        signal="BUY",
+        entry_price=holding_data.avg_price,
+        shares=holding_data.quantity,
+        portfolio_value=portfolio.total_asset if hasattr(portfolio, 'total_asset') else 0, # 현재 가치는 계산 필요하지만 일단 0 또는 임시값
+        confidence_score=1.0 # 사용자 직접 투자이므로 신뢰도 100%
+    )
+    db.add(history_record) # 기록 저장
+
     db.commit()
     return portfolio
+
+#부분/전량 매도
+def sell_holding(db: Session, user_id: int, sell_data: schemas.HoldingSell):
+    portfolio = get_portfolio_by_user(db, user_id)
+    
+    # 1. 내 주식 찾기
+    holding = db.query(models.Holding).filter(
+        models.Holding.portfolio_id == portfolio.id,
+        models.Holding.symbol == sell_data.symbol
+    ).first()
+    
+    if not holding:
+        return {"status": "error", "message": "보유하지 않은 주식입니다."}
+    
+    if holding.quantity < sell_data.quantity:
+        return {"status": "error", "message": "보유 수량이 부족합니다."}
+
+    # 2. 매도 금액 계산 (판매가 * 수량)
+    revenue = sell_data.quantity * sell_data.sell_price
+    
+    # 3. 수익금 계산 (단순 참고용: 판매총액 - (평단가 * 수량))
+    profit = revenue - (holding.avg_price * sell_data.quantity)
+
+    # 4. 예수금 증가 (판 돈 입금)
+    portfolio.current_capital += revenue
+    portfolio.updated_at = datetime.utcnow()
+
+    # 5. 매도 기록(History) 남기기
+    sell_record = models.InvestmentRecord(
+        portfolio_id=portfolio.portfolio_id,
+        model_type="manual_trade",
+        signal="SELL",
+        entry_price=sell_data.sell_price,
+        shares=sell_data.quantity,
+        pnl=profit, # 이번 거래로 번 돈 (손익)
+        confidence_score=1.0
+    )
+    db.add(sell_record)
+
+    # 6. 수량 차감 로직 (핵심!)
+    if holding.quantity == sell_data.quantity:
+        # 전량 매도면 -> 데이터 삭제
+        db.delete(holding)
+        msg = "전량 매도 완료"
+    else:
+        # 부분 매도면 -> 수량만 감소
+        holding.quantity -= sell_data.quantity
+        msg = "부분 매도 완료"
+    
+    db.commit()
+    return {"status": "success", "message": msg, "portfolio": portfolio}

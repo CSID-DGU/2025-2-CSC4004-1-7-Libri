@@ -51,3 +51,13 @@ def add_stock(user_id: int, holding: schemas.HoldingCreate, db: Session = Depend
     """보유 주식 추가 (매수)"""
     crud.add_holding(db, user_id, holding)
     return {"message": "주식이 성공적으로 추가되었습니다."}
+
+@router.post("/{user_id}/sell")
+def sell_stock(user_id: int, sell_data: schemas.HoldingSell, db: Session = Depends(database.get_db)):
+    """주식 매도 (부분 매도 가능)"""
+    result = crud.sell_holding(db, user_id, sell_data)
+    
+    if result["status"] == "error":
+        raise HTTPException(status_code=400, detail=result["message"])
+        
+    return {"message": result["message"]}

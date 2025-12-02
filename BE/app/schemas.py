@@ -44,3 +44,9 @@ class PortfolioResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# 매도 요청용 스키마
+class HoldingSell(BaseModel):
+    symbol: str
+    quantity: int
+    sell_price: float # 얼마에 팔았는지 입력 (수익률 확정용)
