@@ -100,10 +100,12 @@ const mockTradingHistory: DayTrading[] = [
 ];
 
 function SparklineChart() {
-    const chartRef = useRef<HTMLDivElement>(null);
+    const chartContainerRef = useRef<HTMLDivElement>(null);
+    const chartInstanceRef = useRef<ReturnType<typeof createChart> | null>(null);
 
     useEffect(() => {
-        if (!chartRef.current) return;
+        const container = chartContainerRef.current;
+        if (!container) return;
 
         const generateMockData = () => {
             const data = [];
@@ -120,10 +122,10 @@ function SparklineChart() {
             return data;
         };
 
-        const chart = createChart(chartRef.current, {
+        const chart = createChart(container, {
             layout: { background: { color: "transparent" }, textColor: "#1FA9A4" },
             grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-            width: chartRef.current.clientWidth,
+            width: container.clientWidth,
             height: 48,
             timeScale: { visible: false, borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
             rightPriceScale: { visible: false, borderVisible: false },
@@ -132,6 +134,7 @@ function SparklineChart() {
             handleScale: false,
             handleScroll: false,
         });
+        chartInstanceRef.current = chart;
 
         const series = chart.addAreaSeries({
             lineColor: "#1FA9A4",
@@ -146,20 +149,24 @@ function SparklineChart() {
         series.setData(generateMockData());
         chart.timeScale().fitContent();
 
-        const handleResize = () => {
-            if (chartRef.current) {
-                chart.applyOptions({ width: chartRef.current.clientWidth });
+        const resizeObserver = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry || !chartInstanceRef.current) return;
+            const nextWidth = Math.floor(entry.contentRect.width);
+            if (nextWidth > 0) {
+                chartInstanceRef.current.applyOptions({ width: nextWidth });
             }
-        };
+        });
 
-        window.addEventListener("resize", handleResize);
+        resizeObserver.observe(container);
         return () => {
-            window.removeEventListener("resize", handleResize);
+            resizeObserver.disconnect();
             chart.remove();
+            chartInstanceRef.current = null;
         };
     }, []);
 
-    return <div ref={chartRef} className="h-12 w-full" />;
+    return <div ref={chartContainerRef} className="h-12 w-full" />;
 }
 
 function RecommendationCard({
