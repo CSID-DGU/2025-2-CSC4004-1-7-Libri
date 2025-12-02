@@ -7,13 +7,13 @@ import InfoIcon from "@/assets/icons/info.svg?react";
 import CrownIcon from "@/assets/icons/crown.svg?react";
 import { createChart } from "lightweight-charts";
 import IndicatorModal from "./IndicatorModal";
-import { getIndicatorsByStyle } from "../data/indicatorsByStyle";
+import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsByStyle";
 import { type InvestmentStyle, useInvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
 
 export type TabType = "top3" | "analysis" | "trading";
 
-interface IndicatorInfo {
+interface IndicatorGuideInfo {
     title: string;
     description: string;
     fullDescription: string;
@@ -253,7 +253,7 @@ function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (ta
 }
 
 interface Top3IndicatorCardProps {
-    indicator: ReturnType<typeof getIndicatorsByStyle>[0];
+    indicator: IndicatorInfo;
     crownColor?: string;
 }
 
@@ -274,7 +274,7 @@ function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorC
     );
 }
 
-function AnalysisIndicatorCard({ indicator }: { indicator: ReturnType<typeof getIndicatorsByStyle>[0] }) {
+function AnalysisIndicatorCard({ indicator }: { indicator: IndicatorInfo }) {
     return (
         <div
             className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
@@ -293,12 +293,12 @@ function AnalysisIndicatorCard({ indicator }: { indicator: ReturnType<typeof get
 }
 
 function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyle }) {
-    const indicators = getIndicatorsByStyle(investmentStyle);
+    const indicatorData = getIndicatorsByStyle(investmentStyle);
 
     return (
         <section className="flex w-full flex-col gap-4" style={{ paddingInline: "20px" }}>
             <div className="flex flex-col" style={{ gap: "16px" }}>
-                {indicators.map((indicator) => (
+                {indicatorData.analysis.map((indicator) => (
                     <AnalysisIndicatorCard key={indicator.id} indicator={indicator} />
                 ))}
             </div>
@@ -326,9 +326,10 @@ function Top3AnalysisSection({
     onIndicatorClick,
 }: {
     investmentStyle: InvestmentStyle;
-    onIndicatorClick: (indicator: IndicatorInfo) => void;
+    onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
 }) {
-    const indicators = getIndicatorsByStyle(investmentStyle).slice(0, 3);
+    const indicatorData = getIndicatorsByStyle(investmentStyle);
+    const indicators = indicatorData.top3;
     const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
     const handleGuideClick = () => {
@@ -445,7 +446,7 @@ function StockDetailContent({
     aiExplanation: string;
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
-    onIndicatorClick: (indicator: IndicatorInfo) => void;
+    onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
     investmentStyle: InvestmentStyle;
     loading: boolean;
     error: string | null;
@@ -483,7 +484,7 @@ function StockDetailContent({
 
 export default function StockDetail({ stockName, investmentStyle, onBack }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("analysis");
-    const [selectedIndicator, setSelectedIndicator] = useState<IndicatorInfo | null>(null);
+    const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
     const [aiData, setAiData] = useState({
         recommendation: "분석 중...",
         aiExplanation: "데이터를 분석하고 있습니다...",
