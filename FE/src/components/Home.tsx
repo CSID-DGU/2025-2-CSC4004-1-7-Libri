@@ -3,7 +3,6 @@ import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
 import LogoIcon from "@/assets/icons/Logo.svg?react";
-import imgFrame26089667 from "@/assets/bdac4e7d8d4f71d5aef6253221470dffe73bb6a6.png";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";
@@ -23,7 +22,7 @@ interface HomeProps {
     stocks: Stock[];
     onAddStock: () => void;
     investmentStyle: "공격형" | "안정형";
-    onOpenSettings?: () => void;
+    onOpenSettings: () => void;
 }
 
 const formatNumber = (value: number) => value.toLocaleString();
@@ -37,7 +36,7 @@ const formatProfitText = (profit: number, profitRate: number) => {
     };
 };
 
-function HomeHeader({ onOpenSettings }: { onOpenSettings?: () => void }) {
+function HomeHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     return (
         <header
             className="flex w-full items-center justify-between"
@@ -278,7 +277,7 @@ function HomeContent({
     stocks: Stock[];
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
-    onOpenSettings?: () => void;
+    onOpenSettings: () => void;
 }) {
     return (
         <div className="absolute content-stretch flex flex-col gap-[12px] items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] pb-16">
