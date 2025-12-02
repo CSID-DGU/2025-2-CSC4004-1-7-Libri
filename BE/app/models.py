@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Text, Index
+from sqlalchemy import Column, Integer, String, Boolean, Float, DateTime, Text, Index, ForeignKey
+from sqlalchemy.orm import relationship
 from .database import Base
 from datetime import datetime
 
@@ -11,6 +12,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     investment_style = Column(String, default="conservative")
 
+    # [추가] 유저와 포트폴리오 1:1 연결
+    portfolio = relationship("Portfolio", back_populates="owner", uselist=False)
 # ---------------------------------------------------------------------
 # 1) 기술 지표 테이블 (TechnicalIndicator)
 # ---------------------------------------------------------------------
@@ -105,16 +108,35 @@ class Portfolio(Base):
     __tablename__ = "portfolios"
 
     id = Column(Integer, primary_key=True, index=True)
+    # [수정/추가] 유저 ID와 연결 (Foreign Key)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
+    
 
-    # FE가 관리하는 포트폴리오 식별자 (예: "user_1_default")
     portfolio_id = Column(String(50), unique=True, index=True)
-
     initial_capital = Column(Float, nullable=False)
     current_capital = Column(Float, nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+    # [추가] 관계 설정
+    owner = relationship("User", back_populates="portfolio")
+    holdings = relationship("Holding", back_populates="portfolio")
+
+# ---------------------------------------------------------------------
+# [신규] 보유 주식 테이블 (Holding) - 새로 추가
+# ---------------------------------------------------------------------
+class Holding(Base):
+    __tablename__ = "holdings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
+    
+    symbol = Column(String, index=True)       # 종목 코드 (예: 005930)
+    quantity = Column(Integer, default=0)     # 보유 수량
+    avg_price = Column(Float, default=0.0)    # 평균 단가
+
+    portfolio = relationship("Portfolio", back_populates="holdings")
 
 # ---------------------------------------------------------------------
 # 4) 주가 히스토리 테이블 (StockPrice)

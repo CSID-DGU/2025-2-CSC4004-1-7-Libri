@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 from . import models, schemas
-from sqlalchemy.orm import Session
-from . import models, schemas
+from datetime import datetime
 
 def get_user(db: Session, user_id: int):
     return db.query(models.User).filter(models.User.id == user_id).first()
@@ -21,45 +20,53 @@ def create_user(db: Session, user: schemas.UserCreate):
     db.refresh(db_user)
     return db_user
 
-# 포트폴리오 생성/조회
+# 1. 포트폴리오 가져오기 (없으면 자동 생성)
 def get_portfolio_by_user(db: Session, user_id: int):
-    # 유저의 포트폴리오 찾기
-    return db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()
+    portfolio = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()
+    if not portfolio:
+        # 포트폴리오가 없으면 기본값으로 생성해버림 (편의성)
+        portfolio = models.Portfolio(
+            user_id=user_id,
+            portfolio_id=f"user_{user_id}_default",
+            initial_capital=10000000.0,
+            current_capital=10000000.0
+        )
+        db.add(portfolio)
+        db.commit()
+        db.refresh(portfolio)
+    return portfolio
 
-def create_portfolio(db: Session, user_id: int):
-    # 포트폴리오가 없으면 기본값으로 생성
-    db_portfolio = models.Portfolio(user_id=user_id, cash_balance=0.0)
-    db.add(db_portfolio)
-    db.commit()
-    db.refresh(db_portfolio)
-    return db_portfolio
-
-# 보유 주식 추가/업데이트 (핵심 기능)
-def add_or_update_holding(db: Session, portfolio_id: int, holding_data: schemas.HoldingCreate):
-    # 이미 보유한 종목인지 확인
-    existing_holding = db.query(models.Holding).filter(
-        models.Holding.portfolio_id == portfolio_id,
-        models.Holding.stock_symbol == holding_data.stock_symbol
+# 2. 보유 주식 추가하기 (매수 로직)
+def add_holding(db: Session, user_id: int, holding_data: schemas.HoldingCreate):
+    portfolio = get_portfolio_by_user(db, user_id)
+    
+    # 이미 보유 중인지 확인
+    existing = db.query(models.Holding).filter(
+        models.Holding.portfolio_id == portfolio.id,
+        models.Holding.symbol == holding_data.symbol
     ).first()
 
-    if existing_holding:
-        # 이미 있으면 개수와 평단가 업데이트 (단순 덮어쓰기 로직, 필요시 가중평균 로직으로 변경 가능)
-        existing_holding.quantity += holding_data.quantity
-        existing_holding.avg_price = holding_data.avg_price # 예시: 평단가는 입력값으로 갱신
-        # 실제 가중평균 로직: (기존총액 + 추가총액) / 전체수량
+    cost = holding_data.quantity * holding_data.avg_price
+
+    if existing:
+        # 물타기 (평단가 재계산): 총매입금액 / 총수량
+        total_quantity = existing.quantity + holding_data.quantity
+        total_cost = (existing.quantity * existing.avg_price) + cost
+        existing.avg_price = total_cost / total_quantity
+        existing.quantity = total_quantity
     else:
-        # 없으면 새로 추가
+        # 신규 추가
         new_holding = models.Holding(
-            portfolio_id=portfolio_id,
-            stock_symbol=holding_data.stock_symbol,
+            portfolio_id=portfolio.id,
+            symbol=holding_data.symbol,
             quantity=holding_data.quantity,
             avg_price=holding_data.avg_price
         )
         db.add(new_holding)
     
+    # 예수금 차감
+    portfolio.current_capital -= cost
+    portfolio.updated_at = datetime.utcnow()
+    
     db.commit()
-    return get_portfolio_by_user(db, portfolio_id=db.query(models.Portfolio).filter(models.Portfolio.id==portfolio_id).first().user_id) # 갱신된 포트폴리오 반환
-
-# 보유 주식 조회
-def get_holdings(db: Session, portfolio_id: int):
-    return db.query(models.Holding).filter(models.Holding.portfolio_id == portfolio_id).all()
+    return portfolio
