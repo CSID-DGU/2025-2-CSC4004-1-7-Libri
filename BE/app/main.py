@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from . import models, schemas, crud
 from .database import engine, get_db
-from .routers import portfolio, stocks
+from .routers import portfolio, stocks, ai
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -11,6 +11,7 @@ app = FastAPI()
 
 app.include_router(portfolio.router)
 app.include_router(stocks.router)
+app.include_router(ai.router)
 
 origins = [
     "*",
@@ -49,5 +50,3 @@ def update_investment_style(user_id: int, investment: schemas.UserInvestmentUpda
 def read_root():
     return {"message": "Database is set up!"}
 
-from .routers import ai
-app.include_router(ai.router)
