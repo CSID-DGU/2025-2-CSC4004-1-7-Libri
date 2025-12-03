@@ -3,13 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from . import models, schemas, crud
 from .database import engine, get_db
-from .routers import portfolio
+from .routers import portfolio, stocks
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
 app.include_router(portfolio.router)
+app.include_router(stocks.router)
 
 origins = [
     "*",

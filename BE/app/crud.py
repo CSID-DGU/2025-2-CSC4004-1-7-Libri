@@ -141,3 +141,57 @@ def sell_holding(db: Session, user_id: int, sell_data: schemas.HoldingSell):
     
     db.commit()
     return {"status": "success", "message": msg, "portfolio": portfolio}
+
+# ---------------------------------------------------------------------
+# 주가 데이터 저장
+# ---------------------------------------------------------------------
+def create_stock_price(db: Session, stock_price: schemas.StockPriceCreate):
+    db_stock_price = models.StockPrice(**stock_price.dict())
+    db.add(db_stock_price)
+    db.commit()
+    db.refresh(db_stock_price)
+    return db_stock_price
+
+def bulk_create_stock_prices(db: Session, stock_prices: list[schemas.StockPriceCreate]):
+    if not stock_prices:
+        return 0
+
+    # 1. 입력된 데이터에서 (symbol, date) 목록 추출
+    symbols = {sp.symbol for sp in stock_prices}
+    dates = {sp.date for sp in stock_prices}
+    
+    # 2. DB에서 이미 존재하는 (symbol, date) 조회
+    existing_records = db.query(models.StockPrice).filter(
+        models.StockPrice.symbol.in_(symbols),
+        models.StockPrice.date.in_(dates)
+    ).all()
+    
+    existing_keys = {(r.symbol, r.date) for r in existing_records}
+    
+    # 3. 중복되지 않는 데이터만 필터링
+    new_records = []
+    for sp in stock_prices:
+        if (sp.symbol, sp.date) not in existing_keys:
+            new_records.append(models.StockPrice(**sp.dict()))
+            # 중복 방지를 위해 추가한 키도 existing_keys에 등록 (입력 데이터 내 중복 방지)
+            existing_keys.add((sp.symbol, sp.date))
+            
+    if new_records:
+        db.add_all(new_records)
+        db.commit()
+        
+    return len(new_records)
+
+def get_stock_prices(db: Session, symbol: str, days: int = 30):
+    return db.query(models.StockPrice)\
+        .filter(models.StockPrice.symbol == symbol)\
+        .order_by(models.StockPrice.date.desc())\
+        .limit(days)\
+        .all()
+
+def get_latest_stock_date(db: Session, symbol: str):
+    result = db.query(models.StockPrice.date)\
+        .filter(models.StockPrice.symbol == symbol)\
+        .order_by(models.StockPrice.date.desc())\
+        .first()
+    return result[0] if result else None

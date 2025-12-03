@@ -50,3 +50,27 @@ class HoldingSell(BaseModel):
     symbol: str
     quantity: int
     sell_price: float # 얼마에 팔았는지 입력 (수익률 확정용)
+
+# ---------------------------------------------------------------------
+# 주가 데이터 스키마
+# ---------------------------------------------------------------------
+from datetime import datetime
+
+class StockPriceBase(BaseModel):
+    symbol: str
+    date: datetime
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+
+class StockPriceCreate(StockPriceBase):
+    pass
+
+class StockPrice(StockPriceBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
