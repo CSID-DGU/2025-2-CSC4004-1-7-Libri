@@ -6,16 +6,26 @@ import LogoIcon from "@/assets/icons/Logo.svg?react";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";
+import {
+    generateMockPriceSeries,
+    generateRandomActions,
+    simulateTradingHistory,
+} from "@/utils/aiTradingSimulation";
 
 interface Stock {
     name: string;
     quantity: number;
     averagePrice: number;
     totalValue: number;
-    profit: number;
-    profitRate: number;
     logoUrl?: string;
 }
+
+interface StockPerformance {
+    profit: number;
+    profitRate: number;
+}
+
+type StockPerformanceMap = Record<string, StockPerformance>;
 
 interface HomeProps {
     initialInvestment: number;
@@ -64,15 +74,14 @@ function HomeHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
 
 function InvestmentState({
     initialInvestment,
-    profit,
-    profitRate,
+    aiTradeProfit,
+    aiTradeProfitRate,
 }: {
     initialInvestment: number;
-    profit: number;
-    profitRate: number;
+    aiTradeProfit: number;
+    aiTradeProfitRate: number;
 }) {
-    const profitInfo = formatProfitText(profit, profitRate);
-
+    const aiProfitInfo = formatProfitText(aiTradeProfit, aiTradeProfitRate);
     return (
         <section className="flex flex-col gap-[10px] rounded-[16px] bg-[rgba(31,169,164,0.08)] p-[20px]">
             <div className="flex items-center gap-[4px] text-[#1fa9a4]">
@@ -87,22 +96,13 @@ function InvestmentState({
             <div className="flex flex-col text-[16px] tracking-[0.16px] text-[#151b26]">
                 <p className="body-1">
                     리브리가{" "}
-                    <span
-                        className="body-1 text-[#1fa9a4]"
-                        style={{ fontWeight: 700 }}
-                    >
+                    <span className="body-1 text-[#1fa9a4]" style={{ fontWeight: 700 }}>
                         {formatNumber(initialInvestment)}
                     </span>
-                    으로
-                </p>
-                <p className="body-1">
-                    총 수익률{" "}
-                    <span
-                        className="body-1"
-                        style={{ color: profitInfo.color, fontWeight: 700 }}
-                    >
-                        {profitInfo.text}
-                    </span>{" "}
+                    으로 총 수익률{" "}
+                    <span className="body-1" style={{ color: aiProfitInfo.color, fontWeight: 700 }}>
+                        {aiProfitInfo.text}
+                    </span>
                     을 내고 있어요.
                 </p>
             </div>
@@ -157,11 +157,15 @@ function StockLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
 function StockCard({
     stock,
     onClick,
+    aiProfit,
+    aiProfitRate,
 }: {
     stock: Stock;
     onClick: (stockName: string) => void;
+    aiProfit: number;
+    aiProfitRate: number;
 }) {
-    const { text, color } = formatProfitText(stock.profit, stock.profitRate);
+    const { text, color } = formatProfitText(aiProfit, aiProfitRate);
 
     return (
         <button
@@ -200,9 +204,11 @@ function StockCard({
 function StockList({
     stocks,
     onStockClick,
+    stockPerformance,
 }: {
     stocks: Stock[];
     onStockClick: (stock: string) => void;
+    stockPerformance: StockPerformanceMap;
 }) {
     if (!stocks.length) {
         return (
@@ -215,7 +221,13 @@ function StockList({
     return (
         <div className="flex w-full flex-col gap-[12px]">
             {stocks.map((stock) => (
-                <StockCard key={stock.name} stock={stock} onClick={onStockClick} />
+                <StockCard
+                    key={stock.name}
+                    stock={stock}
+                    onClick={onStockClick}
+                    aiProfit={stockPerformance[stock.name]?.profit ?? 0}
+                    aiProfitRate={stockPerformance[stock.name]?.profitRate ?? 0}
+                />
             ))}
         </div>
     );
@@ -243,10 +255,12 @@ function StockSection({
     stocks,
     onAddStock,
     onStockClick,
+    stockPerformance,
 }: {
     stocks: Stock[];
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
+    stockPerformance: StockPerformanceMap;
 }) {
     return (
         <section className="flex flex-col mt-[28px]">
@@ -254,7 +268,11 @@ function StockSection({
                 종목별 상세</h2>
             <div className="mt-[10px] flex flex-col">
                 <div style={{ marginBottom: "12px" }}>
-                    <StockList stocks={stocks} onStockClick={onStockClick} />
+                    <StockList
+                        stocks={stocks}
+                        onStockClick={onStockClick}
+                        stockPerformance={stockPerformance}
+                    />
                 </div>
                 <AddStockButton onAddStock={onAddStock} />
             </div>
@@ -264,20 +282,22 @@ function StockSection({
 
 function HomeContent({
     initialInvestment,
-    profit,
-    profitRate,
+    aiTradeProfit,
+    aiTradeProfitRate,
     stocks,
     onAddStock,
     onStockClick,
     onOpenSettings,
+    stockPerformance,
 }: {
     initialInvestment: number;
-    profit: number;
-    profitRate: number;
+    aiTradeProfit: number;
+    aiTradeProfitRate: number;
     stocks: Stock[];
     onAddStock: () => void;
     onStockClick: (stock: string) => void;
     onOpenSettings: () => void;
+    stockPerformance: StockPerformanceMap;
 }) {
     return (
         <div className="absolute content-stretch flex flex-col gap-[12px] items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] pb-16">
@@ -288,8 +308,8 @@ function HomeContent({
                 <div className="w-full" style={{ paddingInline: "20px", marginBottom: "28px" }}>
                     <InvestmentState
                         initialInvestment={initialInvestment}
-                        profit={profit}
-                        profitRate={profitRate}
+                        aiTradeProfit={aiTradeProfit}
+                        aiTradeProfitRate={aiTradeProfitRate}
                     />
                 </div>
                 <div className="w-full" style={{ paddingInline: "20px" }}>
@@ -297,6 +317,7 @@ function HomeContent({
                         stocks={stocks}
                         onAddStock={onAddStock}
                         onStockClick={onStockClick}
+                        stockPerformance={stockPerformance}
                     />
                 </div>
             </div>
@@ -314,17 +335,39 @@ export default function Home({
     const [currentView, setCurrentView] = useState<"list" | "detail">("list");
     const [selectedStockName, setSelectedStockName] = useState("");
 
-    const { totalProfit, totalProfitRate } = useMemo(() => {
-        const totalProfitValue = stocks.reduce((sum, stock) => sum + stock.profit, 0);
-        const investedCapital = stocks.reduce(
-            (sum, stock) => sum + (stock.totalValue - stock.profit),
-            0
-        );
-        return {
-            totalProfit: totalProfitValue,
-            totalProfitRate: investedCapital ? (totalProfitValue / investedCapital) * 100 : 0,
-        };
-    }, [stocks]);
+    const summaryStockName = stocks[0]?.name || "삼성전자";
+    const fallbackPerformance = useMemo(() => {
+        const priceSeries = generateMockPriceSeries(summaryStockName);
+        const actions = generateRandomActions(summaryStockName, priceSeries.length || 5);
+        const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
+        const profitRate = initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0;
+        return { profit: totalProfit, profitRate };
+    }, [initialInvestment, summaryStockName]);
+
+    const stockPerformance = useMemo<StockPerformanceMap>(() => {
+        if (!stocks.length) {
+            return {
+                [summaryStockName]: { ...fallbackPerformance },
+            };
+        }
+
+        return stocks.reduce<StockPerformanceMap>((acc, stock) => {
+            const priceSeries = generateMockPriceSeries(stock.name);
+            const actions = generateRandomActions(stock.name, priceSeries.length || 5);
+            const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
+            acc[stock.name] = {
+                profit: totalProfit,
+                profitRate: initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0,
+            };
+            return acc;
+        }, {});
+    }, [stocks, initialInvestment, summaryStockName, fallbackPerformance]);
+
+    const aiTradeProfit = useMemo(
+        () => Object.values(stockPerformance).reduce((acc, { profit }) => acc + profit, 0),
+        [stockPerformance],
+    );
+    const aiTradeProfitRate = initialInvestment > 0 ? (aiTradeProfit / initialInvestment) * 100 : 0;
 
     const handleStockClick = (stockName: string) => {
         setSelectedStockName(stockName);
@@ -351,12 +394,13 @@ export default function Home({
         <div className="relative min-h-screen w-full bg-white">
             <HomeContent
                 initialInvestment={initialInvestment}
-                profit={totalProfit}
-                profitRate={totalProfitRate}
+                aiTradeProfit={aiTradeProfit}
+                aiTradeProfitRate={aiTradeProfitRate}
                 stocks={stocks}
                 onAddStock={onAddStock}
                 onStockClick={handleStockClick}
                 onOpenSettings={onOpenSettings}
+                stockPerformance={stockPerformance}
             />
         </div>
     );
