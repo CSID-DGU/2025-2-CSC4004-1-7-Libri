@@ -194,3 +194,14 @@ def get_latest_stock_date(db: Session, symbol: str):
         .order_by(models.StockPrice.date.desc())\
         .first()
     return result[0] if result else None
+
+def get_investment_history(db: Session, user_id: int):
+    # 1. 유저의 포트폴리오 정보 가져오기 (portfolio_id 문자열이 필요함)
+    portfolio = get_portfolio_by_user(db, user_id)
+    if not portfolio:
+        return []
+    
+    # 2. 해당 포트폴리오의 거래 내역을 최신순으로 조회
+    return db.query(models.InvestmentRecord).filter(
+        models.InvestmentRecord.portfolio_id == portfolio.portfolio_id
+    ).order_by(models.InvestmentRecord.timestamp.desc()).all()
