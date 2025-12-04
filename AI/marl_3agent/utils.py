@@ -12,8 +12,8 @@ def convert_joint_action_to_signal(joint_action, action_map):
     elif score <= -3: return "적극 매도"
     return "보유"
 
-def generate_ai_explanation(final_signal, agent_analyses):
-    """AI 판단 근거(XAI) 텍스트 생성"""
+def get_top_features_marl(agent_analyses, top_k=3):
+    """MARL 에이전트들의 분석 결과를 종합하여 Top K 중요 지표 추출"""
     all_importances = {}
     for _, _, importance_list in agent_analyses:
         for feature, imp in importance_list:
@@ -21,20 +21,32 @@ def generate_ai_explanation(final_signal, agent_analyses):
             
     sorted_features = sorted(all_importances.items(), key=lambda item: item[1], reverse=True)
     
+    top_features = []
+    for feature, imp in sorted_features[:top_k]:
+        top_features.append({
+            "name": feature,
+            "importance": float(imp),
+            "description": f"{feature} 지표" # 필요시 상세 설명 매핑 추가 가능
+        })
+        
+    return top_features
+
+def generate_ai_explanation(final_signal, agent_analyses):
+    """AI 판단 근거(XAI) 텍스트 생성"""
+    top_features = get_top_features_marl(agent_analyses)
+    
     explanation = f"AI가 '{final_signal}'을 결정한 주된 이유는 다음과 같습니다.\n\n"
-    if not sorted_features:
+    if not top_features:
         return explanation + "데이터 분석 중입니다."
         
-    top_feature_1 = sorted_features[0][0]
-    explanation += f"  1. '{top_feature_1}' 지표의 최근 움직임을 가장 중요하게 고려했습니다.\n"
+    if len(top_features) > 0:
+        explanation += f"  1. '{top_features[0]['name']}' 지표의 최근 움직임을 가장 중요하게 고려했습니다.\n"
     
-    if len(sorted_features) > 1:
-        top_feature_2 = sorted_features[1][0]
-        explanation += f"  2. '{top_feature_2}' 지표가 2순위로 결정에 영향을 미쳤습니다.\n"
+    if len(top_features) > 1:
+        explanation += f"  2. '{top_features[1]['name']}' 지표가 2순위로 결정에 영향을 미쳤습니다.\n"
         
-    if len(sorted_features) > 2:
-        top_feature_3 = sorted_features[2][0]
-        explanation += f"  3. 마지막으로 '{top_feature_3}' 지표를 참고했습니다.\n"
+    if len(top_features) > 2:
+        explanation += f"  3. 마지막으로 '{top_features[2]['name']}' 지표를 참고했습니다.\n"
         
     return explanation
 

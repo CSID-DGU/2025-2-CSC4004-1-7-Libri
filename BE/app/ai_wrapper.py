@@ -92,6 +92,49 @@ class A2CWrapper:
 
             self.model_loaded = True
 
+            # --- SHAP Setup ---
+            import shap
+            
+            # Load data for background distribution (recent 2 years)
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=365*2)
+            
+            raw_df = data_utils.download_data(
+                self.cfg["ticker"],
+                self.cfg["kospi_ticker"],
+                self.cfg["vix_ticker"],
+                start_dt.strftime("%Y-%m-%d"),
+                end_dt.strftime("%Y-%m-%d"),
+            )
+            df = data_utils.add_indicators(raw_df)
+            if self.scaler:
+                 df[data_utils.FEATURES] = self.scaler.transform(df[data_utils.FEATURES])
+                 
+            # Create background states
+            bg_states = []
+            bg_len = min(200 + window_size, len(df) - 1)
+            for i in range(window_size - 1, bg_len):
+                current_window = df.iloc[i - (window_size - 1) : i + 1]
+                s = data_utils.build_state(current_window, position_flag=0)
+                bg_states.append(s)
+            bg_states = np.array(bg_states, dtype=np.float32)
+            
+            # Sample background
+            if len(bg_states) > 100:
+                bg_summary = shap.sample(bg_states, 100)
+            else:
+                bg_summary = bg_states
+                
+            # Define model function for SHAP
+            def model_f(x):
+                x_t = torch.tensor(x, dtype=torch.float32, device=self.cfg.get("device", "cpu"))
+                policy_logits, _ = self.agent.ac_net(x_t)
+                policy_probs = torch.nn.functional.softmax(policy_logits, dim=-1)
+                return policy_probs.detach().cpu().numpy()
+                
+            self.explainer = shap.KernelExplainer(model_f, bg_summary)
+            self.feature_names = explain_a2c.get_feature_names_with_position(window_size)
+
         except Exception as e:
             print(f"Error loading A2C model: {e}")
         finally:
@@ -223,6 +266,7 @@ class A2CWrapper:
 
         try:
             from data_utils import download_data, add_indicators, FEATURES, build_state
+            import explain_a2c
 
             end_dt = datetime.now()
             start_dt = end_dt - timedelta(days=100)
@@ -259,10 +303,16 @@ class A2CWrapper:
                 )
                 action = int(np.argmax(probs))
 
+            # Get XAI features
+            _, _, _, top_features = explain_a2c.get_top_features(
+                state, self.agent, self.explainer, self.feature_names, top_k=3
+            )
+
             return {
                 "date": last_date.strftime("%Y-%m-%d"),
                 "action": int(action),  # 0: Long, 1: Short, 2: Hold
                 "probs": probs.tolist(),
+                "xai_features": top_features,
             }
 
         except Exception as e:
@@ -476,7 +526,7 @@ class MarlWrapper:
 
             from config import WINDOW_SIZE
             from environment import MARLStockEnv
-            from utils import convert_joint_action_to_signal
+            from utils import convert_joint_action_to_signal, get_top_features_marl
 
             (features_df, prices_df, _, a0, a1, a2) = self.processor.process()
             norm_features, _ = self.processor.normalize_data(
@@ -503,6 +553,20 @@ class MarlWrapper:
                 joint_action, {0: "Long", 1: "Hold", 2: "Short"}
             )
 
+            # --- XAI for MARL ---
+            agent_analyses = []
+            feature_names_list = [self.a0_cols, self.a1_cols, self.a2_cols]
+            n_features_list = [len(c) for c in feature_names_list]
+            
+            for i, agent in enumerate(self.learner.agents):
+                obs = obs_dict[f'agent_{i}']
+                _, q_vals, importance = agent.get_prediction_with_reason(
+                    obs, feature_names_list[i], WINDOW_SIZE, n_features_list[i]
+                )
+                agent_analyses.append((actions[f'agent_{i}'], q_vals, importance))
+                
+            top_features = get_top_features_marl(agent_analyses)
+
             signal_int = 2
             if final_signal_str == "Long":
                 signal_int = 0
@@ -514,6 +578,7 @@ class MarlWrapper:
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
+                "xai_features": top_features,
             }
 
         except Exception as e:
@@ -670,6 +735,8 @@ class AIService:
                 win_rate=win_rate,
                 investment_style=investment_style,
             )
+            
+            xai_features = today_pred.get("xai_features", [])
 
             return {
                 "symbol": symbol,
@@ -680,7 +747,8 @@ class AIService:
                 "confidence": confidence, # 0.0 ~ 1.0
                 "win_rate": win_rate,     # 0.0 ~ 1.0
                 "investment_style": investment_style,
-                "indicators": [],         # 나중에 XAI 붙이면 여기에 중요 지표 리스트
+                "indicators": [],         # 기존 호환성 유지
+                "xai_features": xai_features, # 신규 추가
                 "explanation": explanation,
             }
 
