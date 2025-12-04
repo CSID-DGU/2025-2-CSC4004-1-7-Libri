@@ -19,8 +19,9 @@ def get_my_portfolio(user_id: int, db: Session = Depends(database.get_db)):
     response_holdings = []
     
     for holding in portfolio.holdings:
-        # TODO: 나중에 stock_fetcher.get_current_price(holding.symbol)로 교체 필요
-        current_price_mock = holding.avg_price * 1.05 # 5% 수익 가정
+        # stock_fetcher를 이용해 DB에서 해당 종목의 가장 최근 가격(close)을 조회합니다.
+        latest_stock = stock_fetcher.get_latest_price(db, holding.symbol)
+        current_price = latest_stock.close if latest_stock else holding.avg_price
         
         valuation = current_price_mock * holding.quantity
         total_stock_value += valuation
