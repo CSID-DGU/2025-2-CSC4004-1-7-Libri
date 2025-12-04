@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .. import crud, schemas, database
 from ..stock_fetcher import fetch_current_price 
+from typing import List
 
 router = APIRouter(
     prefix="/portfolio",
@@ -72,3 +73,8 @@ def sell_stock(user_id: int, sell_data: schemas.HoldingSell, db: Session = Depen
         raise HTTPException(status_code=400, detail=result["message"])
         
     return {"message": result["message"]}
+
+@router.get("/{user_id}/history", response_model=List[schemas.InvestmentRecordResponse])
+def get_portfolio_history(user_id: int, db: Session = Depends(database.get_db)):
+    """사용자의 투자(매매) 내역 조회"""
+    return crud.get_investment_history(db, user_id)

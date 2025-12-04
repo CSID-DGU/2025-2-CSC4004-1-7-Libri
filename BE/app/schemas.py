@@ -72,3 +72,18 @@ class StockPrice(StockPriceBase):
 
     class Config:
         from_attributes = True
+class InvestmentRecordResponse(BaseModel):
+    id: int
+    timestamp: datetime
+    portfolio_id: str
+    model_type: str
+    signal: str
+    entry_price: float
+    shares: int
+    portfolio_value: float
+    pnl: float | None = None
+    confidence_score: float
+    gpt_explanation: str | None = None
+
+    class Config:
+        from_attributes = True
