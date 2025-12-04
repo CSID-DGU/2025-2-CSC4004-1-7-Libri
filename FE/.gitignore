@@ -122,5 +122,10 @@ AI/**/checkpoints/
 # Placeholder files
 placeholder.txt
 
-# Firebase local cache
+# Firebase local cache and configs
 .firebase/
+.firebaserc
+firebase.json
+firebase.*.json
+firebase-debug.log
+firebase-debug.*.log
