@@ -66,6 +66,7 @@ class AIPredictResponse(BaseModel):
     win_rate: float       # 0.0 ~ 1.0
     investment_style: str
     indicators: List[str] = []
+    xai_features: List[dict] = [] # Top 3 중요 지표 (XAI)
     explanation: str
 
 
@@ -154,6 +155,7 @@ def predict(req: AIPredictRequest):
           "win_rate": 0.62,
           "investment_style": "aggressive",
           "indicators": [...],
+          "xai_features": [...],
           "explanation": "..."
         }
     """

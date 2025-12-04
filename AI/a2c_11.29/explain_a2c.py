@@ -73,12 +73,11 @@ def calendar_split(df: pd.DataFrame, train_years: int, backtest_days: int):
 
 
 # --- 추천 + SHAP 계산 ---
-def get_recommendation_and_explanation(
+def get_top_features(
     state: np.ndarray,
     agent: A2CAgent,
     explainer: shap.Explainer,
     feature_names: list,
-    save_path: str,
     top_k: int = 3,
 ):
     # 1. 정책 확률 계산
@@ -88,12 +87,9 @@ def get_recommendation_and_explanation(
         policy_probs = F.softmax(policy_logits, dim=-1).detach().cpu().numpy()[0]
 
     action_idx = int(np.argmax(policy_probs))
-    action_map = {0: "매수", 1: "매도", 2: "보유"}
-    action_label = action_map[action_idx]
-    recommendation = action_label  # 자연어용
-
+    
     # 2. SHAP 값 계산
-    print("SHAP 값 계산 중 (A2C Actor 기준)...")
+    # print("SHAP 값 계산 중 (A2C Actor 기준)...")
     shap_values_tensor = explainer.shap_values(state.reshape(1, -1))
     shap_for_action = shap_values_tensor[0, :, action_idx]
 
@@ -126,11 +122,33 @@ def get_recommendation_and_explanation(
         top_features.append(
             {
                 "base": base,
-                "shap": shap_val,
+                "shap": float(shap_val),
                 "direction": direction,
                 "description": desc,
             }
         )
+        
+    return action_idx, policy_probs, shap_for_action, top_features
+
+
+def get_recommendation_and_explanation(
+    state: np.ndarray,
+    agent: A2CAgent,
+    explainer: shap.Explainer,
+    feature_names: list,
+    save_path: str,
+    top_k: int = 3,
+):
+    action_idx, policy_probs, shap_for_action, top_features = get_top_features(
+        state, agent, explainer, feature_names, top_k
+    )
+
+    action_map = {0: "매수", 1: "매도", 2: "보유"}
+    action_label = action_map[action_idx]
+    recommendation = action_label  # 자연어용
+
+    # feature_shap 재구성 (그래프용)
+    feature_shap = dict(zip(feature_names, shap_for_action))
 
     # 4. 전체 feature 단위 barh 그래프 저장
     plt.figure(figsize=(10, 6))
