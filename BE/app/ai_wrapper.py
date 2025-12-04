@@ -9,6 +9,8 @@ import yaml
 import warnings
 from typing import Dict, Any, List, Optional
 
+from gpt_service import interpret_model_output  # ★ GPT 서비스 import 추가
+
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
@@ -94,11 +96,11 @@ class A2CWrapper:
 
             # --- SHAP Setup ---
             import shap
-            
+
             # Load data for background distribution (recent 2 years)
             end_dt = datetime.now()
-            start_dt = end_dt - timedelta(days=365*2)
-            
+            start_dt = end_dt - timedelta(days=365 * 2)
+
             raw_df = data_utils.download_data(
                 self.cfg["ticker"],
                 self.cfg["kospi_ticker"],
@@ -108,30 +110,30 @@ class A2CWrapper:
             )
             df = data_utils.add_indicators(raw_df)
             if self.scaler:
-                 df[data_utils.FEATURES] = self.scaler.transform(df[data_utils.FEATURES])
-                 
+                df[data_utils.FEATURES] = self.scaler.transform(df[data_utils.FEATURES])
+
             # Create background states
             bg_states = []
             bg_len = min(200 + window_size, len(df) - 1)
             for i in range(window_size - 1, bg_len):
-                current_window = df.iloc[i - (window_size - 1) : i + 1]
+                current_window = df.iloc[i - (window_size - 1): i + 1]
                 s = data_utils.build_state(current_window, position_flag=0)
                 bg_states.append(s)
             bg_states = np.array(bg_states, dtype=np.float32)
-            
+
             # Sample background
             if len(bg_states) > 100:
                 bg_summary = shap.sample(bg_states, 100)
             else:
                 bg_summary = bg_states
-                
+
             # Define model function for SHAP
             def model_f(x):
                 x_t = torch.tensor(x, dtype=torch.float32, device=self.cfg.get("device", "cpu"))
                 policy_logits, _ = self.agent.ac_net(x_t)
                 policy_probs = torch.nn.functional.softmax(policy_logits, dim=-1)
                 return policy_probs.detach().cpu().numpy()
-                
+
             self.explainer = shap.KernelExplainer(model_f, bg_summary)
             self.feature_names = explain_a2c.get_feature_names_with_position(window_size)
 
@@ -202,7 +204,7 @@ class A2CWrapper:
                     continue
 
                 prev_window = df.iloc[
-                    prev_date_loc - (window_size - 1) : prev_date_loc + 1
+                    prev_date_loc - (window_size - 1): prev_date_loc + 1
                 ]
                 state = build_state(prev_window, position_flag=0)
 
@@ -557,14 +559,14 @@ class MarlWrapper:
             agent_analyses = []
             feature_names_list = [self.a0_cols, self.a1_cols, self.a2_cols]
             n_features_list = [len(c) for c in feature_names_list]
-            
+
             for i, agent in enumerate(self.learner.agents):
-                obs = obs_dict[f'agent_{i}']
+                obs = obs_dict[f"agent_{i}"]
                 _, q_vals, importance = agent.get_prediction_with_reason(
                     obs, feature_names_list[i], WINDOW_SIZE, n_features_list[i]
                 )
-                agent_analyses.append((actions[f'agent_{i}'], q_vals, importance))
-                
+                agent_analyses.append((actions[f"agent_{i}"], q_vals, importance))
+
             top_features = get_top_features_marl(agent_analyses)
 
             signal_int = 2
@@ -621,6 +623,25 @@ class AIService:
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
+        # FEATURES 기반 기본 인디케이터 목록 (A2C 데이터 유틸에서 가져옴)
+        self._default_indicators: List[str] = self._load_default_indicators()
+
+    def _load_default_indicators(self) -> List[str]:
+        """
+        AI/a2c_11.29/data_utils.py 에 정의된 FEATURES 리스트를
+        한 번 읽어와서 기본 indicators로 사용한다.
+        """
+        try:
+            # A2CWrapper에서 이미 A2C_DIR을 sys.path에 추가해두었기 때문에
+            # 여기서 바로 data_utils import 가능
+            import data_utils  # type: ignore
+            feats = getattr(data_utils, "FEATURES", None)
+            if not feats:
+                return []
+            return list(feats)
+        except Exception as e:
+            print(f"[AIService] Warning: failed to load default indicators from FEATURES: {e}")
+            return []
 
     def _compute_win_rate(self, signals: List[Dict[str, Any]]) -> float:
         """
@@ -675,20 +696,6 @@ class AIService:
     ) -> Dict[str, Any]:
         """
         B 파트에서 실제로 사용할 진입점 함수.
-
-        Parameters
-        ----------
-        symbol : str
-            예측할 종목 티커 (현재 모델은 삼성전자 전용이라 cfg의 ticker를 주로 사용)
-        mode : str
-            "a2c" 또는 "marl"
-        investment_style : str
-            "aggressive" / "conservative"
-
-        Returns
-        -------
-        Dict[str, Any]
-            프론트엔드로 바로 내려보낼 수 있는 JSON 딕셔너리.
         """
         if mode not in ("a2c", "marl"):
             raise ValueError(f"Unsupported mode: {mode}")
@@ -735,26 +742,69 @@ class AIService:
                 win_rate=win_rate,
                 investment_style=investment_style,
             )
-            
+
             xai_features = today_pred.get("xai_features", [])
+
+            # ▶ 여기서 indicators를 FEATURES 기반 리스트로 채워줌
+            indicators: List[str] = self._default_indicators
+
+            # -----------------------------
+            # OpenAI GPT 기반 상세 설명 시도
+            # -----------------------------
+            try:
+                # 기술 지표 값 딕셔너리 (현재는 이름 위주이므로 0.0으로 채움)
+                technical_indicators = {name: 0.0 for name in indicators}
+
+                # XAI에서 넘어온 top features를 feature_importance 형태로 변환
+                feature_importance: Dict[str, float] = {}
+                for i, feat in enumerate(xai_features):
+                    if isinstance(feat, dict):
+                        fname = (
+                            feat.get("name")
+                            or feat.get("feature")
+                            or feat.get("indicator")
+                            or f"feature_{i}"
+                        )
+                        try:
+                            importance_val = float(
+                                feat.get("importance")
+                                or feat.get("value")
+                                or feat.get("score")
+                                or 0.0
+                            )
+                        except Exception:
+                            importance_val = 0.0
+                        feature_importance[fname] = importance_val
+
+                # GPT 서비스 호출 (동기 함수라고 가정)
+                gpt_explanation = interpret_model_output(
+                    signal=action_en,
+                    technical_indicators=technical_indicators,
+                    feature_importance=feature_importance,
+                )
+
+                if isinstance(gpt_explanation, str) and gpt_explanation.strip():
+                    explanation = gpt_explanation.strip()
+
+            except Exception as gpt_err:
+                # GPT 호출 실패 시에는 기존 규칙 기반 설명 사용
+                print(f"[AIService] GPT explanation failed, fallback to rule-based: {gpt_err}")
 
             return {
                 "symbol": symbol,
                 "model": mode,
                 "date": date_str,
-                "action": action_en,      # "BUY" / "SELL" / "HOLD"
-                "action_ko": action_ko,   # "매수" / "매도" / "관망"
-                "confidence": confidence, # 0.0 ~ 1.0
-                "win_rate": win_rate,     # 0.0 ~ 1.0
+                "action": action_en,          # "BUY" / "SELL" / "HOLD"
+                "action_ko": action_ko,       # "매수" / "매도" / "관망"
+                "confidence": confidence,     # 0.0 ~ 1.0
+                "win_rate": win_rate,         # 0.0 ~ 1.0
                 "investment_style": investment_style,
-                "indicators": [],         # 기존 호환성 유지
-                "xai_features": xai_features, # 신규 추가
-                "explanation": explanation,
+                "indicators": indicators,     # FEATURES 기반 지표 목록
+                "xai_features": xai_features, # Top-k XAI 지표
+                "explanation": explanation,   # ★ GPT 결과(or fallback)
             }
 
         except Exception as e:
-            # 여기서 예외를 잡고 기본 HOLD 응답을 내려주면,
-            # 라우터에서 500 대신 "안전한 기본 응답"을 내려줄 수 있음.
             print(f"[AIService] Error in predict_today: {e}")
             return {
                 "symbol": symbol,
@@ -765,7 +815,7 @@ class AIService:
                 "confidence": 0.0,
                 "win_rate": 0.0,
                 "investment_style": investment_style,
-                "indicators": [],
+                "indicators": self._default_indicators,
                 "explanation": (
                     "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다. "
                     "상세 로그는 서버 콘솔을 확인해주세요."

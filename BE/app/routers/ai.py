@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import List, Optional, Literal
+from fastapi import APIRouter, HTTPException, Query, Body
+from typing import List, Optional, Literal, Dict, Any
 from pydantic import BaseModel
 
 # 상대 경로 기준: app/routers/ai.py → app/ai_wrapper.py
@@ -66,7 +66,7 @@ class AIPredictResponse(BaseModel):
     win_rate: float       # 0.0 ~ 1.0
     investment_style: str
     indicators: List[str] = []
-    xai_features: List[dict] = [] # Top 3 중요 지표 (XAI)
+    xai_features: List[dict] = []  # Top 3 중요 지표 (XAI)
     explanation: str
 
 
@@ -129,7 +129,7 @@ def get_today_signal(
 
 
 # --------------------------------
-# POST /ai/predict  (B 파트 핵심)
+# POST /ai/predict  (B 파트 메인 스펙)
 # --------------------------------
 
 @router.post("/predict", response_model=AIPredictResponse)
@@ -172,3 +172,96 @@ def predict(req: AIPredictRequest):
         raise HTTPException(status_code=500, detail="Failed to get AI prediction")
 
     return result
+
+
+# --------------------------------
+# POST /ai/predict/{mode}
+#  → 프론트 호환용 래거시 엔드포인트
+#    (FE에서 /predict/marl, /predict/a2c 형태로 호출한다고 가정)
+# --------------------------------
+
+@router.post("/predict/{mode}")
+def legacy_predict(
+    mode: str,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    프론트엔드가 사용하는 옛날 형태의 예측 API를 위한 호환용 엔드포인트.
+
+    - 예상 프론트 요청:
+        POST /ai/predict/marl
+        {
+          "symbol": "005930",
+          "features": { ... },            # 현재는 사용하지 않음
+          "investment_style": "aggressive"
+        }
+
+    - 역할:
+        1) path param mode("a2c"/"marl")를 이용해 내부 AI 서비스 호출
+        2) ai_service.predict_today() 결과를 프론트가 기대하는 필드명으로 매핑
+    """
+    mode = mode.lower()
+    if mode not in ("a2c", "marl"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{mode}'. Use 'a2c' or 'marl'.",
+        )
+
+    # 프론트에서 symbol을 "005930"만 보내는 경우 .KS 보정
+    raw_symbol = payload.get("symbol", "005930.KS")
+    if raw_symbol.isdigit():
+        symbol = f"{raw_symbol}.KS"
+    else:
+        symbol = raw_symbol
+
+    investment_style = payload.get("investment_style", "aggressive")
+
+    result = ai_service.predict_today(
+        symbol=symbol,
+        mode=mode,
+        investment_style=investment_style,
+    )
+
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to get AI prediction")
+
+    # ai_service.predict_today()에서 내려주는 값 예시:
+    # {
+    #   "symbol": ...,
+    #   "model": "a2c" or "marl",
+    #   "date": "YYYY-MM-DD",
+    #   "action": "BUY" / "SELL" / "HOLD",
+    #   "action_ko": "매수" / "매도" / "관망",
+    #   "confidence": ...,
+    #   "win_rate": ...,
+    #   "investment_style": ...,
+    #   "indicators": [...],
+    #   "xai_features": [...],
+    #   "explanation": "..."
+    # }
+
+    # 프론트 쪽 StockDetail.tsx에서는 다음 필드를 기대:
+    # - result.signal
+    # - result.gpt_explanation
+    # - result.technical_indicators
+    # 그래서 여기서 이름을 맞춰서 내려준다.
+    action_en = result.get("action", "HOLD")  # "BUY"/"SELL"/"HOLD"
+    signal = action_en.lower()                # "buy"/"sell"/"hold" → translateSignal()과 연동
+
+    return {
+        # 프론트 호환용 필드
+        "signal": signal,
+        "confidence": result.get("confidence", 0.0),
+        "win_rate": result.get("win_rate", 0.0),
+        "gpt_explanation": result.get("explanation", ""),
+        "technical_indicators": result.get("indicators", []),
+
+        # 참고용: 원본 응답도 함께 포함 (디버깅/확장용)
+        "symbol": result.get("symbol", symbol),
+        "model": result.get("model", mode),
+        "date": result.get("date"),
+        "action": result.get("action"),
+        "action_ko": result.get("action_ko"),
+        "investment_style": result.get("investment_style", investment_style),
+        "xai_features": result.get("xai_features", []),
+    }
