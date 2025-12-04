@@ -5,23 +5,26 @@ from typing import Dict, Any, Optional
 def fetch_current_price(symbol: str) -> Optional[float]:
     """
     Fetches the current price of a stock.
-    
-    Args:
-        symbol (str): The stock symbol (e.g., "005930.KS", "AAPL").
-        
-    Returns:
-        float: The current price, or None if fetching fails.
+    portfolio.py에서 이 함수를 직접 import해서 사용합니다.
     """
     try:
+        # 한국 주식 심볼 보정 (숫자만 있으면 .KS 붙임)
+        if symbol.isdigit():
+            symbol = f"{symbol}.KS"
+            
         ticker = yf.Ticker(symbol)
-        # Try fast_info first for real-time data
+        
+        # 1. Try fast_info first for real-time data
         price = ticker.fast_info.last_price
-        if price is None:
-             # Fallback to history if fast_info is not available
+        
+        # 2. Fallback to history if fast_info is not available or None
+        if price is None or pd.isna(price):
             history = ticker.history(period="1d")
             if not history.empty:
                 price = history["Close"].iloc[-1]
-        return price
+        
+        return float(price) if price is not None else None
+        
     except Exception as e:
         print(f"Error fetching current price for {symbol}: {e}")
         return None
@@ -29,17 +32,11 @@ def fetch_current_price(symbol: str) -> Optional[float]:
 def fetch_historical_data(symbol: str, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
     """
     Fetches historical stock data.
-    
-    Args:
-        symbol (str): The stock symbol.
-        period (str): The data period (e.g., "1d", "5d", "1mo", "1y", "max").
-        interval (str): The data interval (e.g., "1m", "1h", "1d", "1wk", "1mo").
-        
-    Returns:
-        pd.DataFrame: A DataFrame containing historical data (Open, High, Low, Close, Volume, etc.).
-                      Returns empty DataFrame on failure.
     """
     try:
+        if symbol.isdigit():
+            symbol = f"{symbol}.KS"
+            
         ticker = yf.Ticker(symbol)
         history = ticker.history(period=period, interval=interval)
         return history
@@ -50,14 +47,11 @@ def fetch_historical_data(symbol: str, period: str = "1mo", interval: str = "1d"
 def get_stock_info(symbol: str) -> Dict[str, Any]:
     """
     Fetches basic information about a stock.
-    
-    Args:
-        symbol (str): The stock symbol.
-        
-    Returns:
-        dict: A dictionary containing stock info. Returns empty dict on failure.
     """
     try:
+        if symbol.isdigit():
+            symbol = f"{symbol}.KS"
+            
         ticker = yf.Ticker(symbol)
         return ticker.info
     except Exception as e:
