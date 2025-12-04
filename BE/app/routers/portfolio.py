@@ -1,7 +1,7 @@
-# BE/app/routers/portfolio.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .. import crud, schemas, database
+from ..stock_fetcher import fetch_current_price 
 
 router = APIRouter(
     prefix="/portfolio",
@@ -10,32 +10,41 @@ router = APIRouter(
 
 @router.get("/{user_id}", response_model=schemas.PortfolioResponse)
 def get_my_portfolio(user_id: int, db: Session = Depends(database.get_db)):
-    """내 포트폴리오 조회 (수익률 자동 계산)"""
+    """내 포트폴리오 조회 (실시간 주가 연동 완료)"""
     portfolio = crud.get_portfolio_by_user(db, user_id)
     
-    # [간이 수익률 계산 로직]
-    # 실제로는 실시간 현재가를 가져와야 하지만, 지금은 테스트용으로 평단가 + 5% 상승했다고 가정
     total_stock_value = 0.0
     response_holdings = []
     
     for holding in portfolio.holdings:
-        # stock_fetcher를 이용해 DB에서 해당 종목의 가장 최근 가격(close)을 조회합니다.
-        latest_stock = stock_fetcher.get_latest_price(db, holding.symbol)
-        current_price = latest_stock.close if latest_stock else holding.avg_price
+        # 👇 [수정] 실제 실시간 주가 가져오기 (stock_fetcher 활용)
+        # 005930 -> 005930.KS 로 변환 (yfinance용)
+        symbol_for_fetch = holding.symbol
+        if symbol_for_fetch.isdigit():
+            symbol_for_fetch = f"{symbol_for_fetch}.KS"
+            
+        real_current_price = fetch_current_price(symbol_for_fetch)
         
-        valuation = current_price_mock * holding.quantity
+        # 만약 장마감/휴일 등으로 데이터를 못 가져오면 평단가로 대체 (에러 방지)
+        if real_current_price is None:
+            current_price = holding.avg_price
+        else:
+            current_price = real_current_price
+        
+        # 평가 금액 계산
+        valuation = current_price * holding.quantity
         total_stock_value += valuation
         
         # 수익률 계산: (현재가 - 평단가) / 평단가 * 100
         profit_rate = 0.0
         if holding.avg_price > 0:
-            profit_rate = ((current_price_mock - holding.avg_price) / holding.avg_price) * 100
+            profit_rate = ((current_price - holding.avg_price) / holding.avg_price) * 100
             
         response_holdings.append({
             "symbol": holding.symbol,
             "quantity": holding.quantity,
             "avg_price": holding.avg_price,
-            "current_price": current_price_mock,
+            "current_price": current_price,  # 실시간 가격 반영
             "profit_rate": profit_rate
         })
 
@@ -47,6 +56,7 @@ def get_my_portfolio(user_id: int, db: Session = Depends(database.get_db)):
         "holdings": response_holdings
     }
 
+# ... (아래 POST 메서드들은 기존과 동일하게 유지) ...
 @router.post("/{user_id}/holdings")
 def add_stock(user_id: int, holding: schemas.HoldingCreate, db: Session = Depends(database.get_db)):
     """보유 주식 추가 (매수)"""
