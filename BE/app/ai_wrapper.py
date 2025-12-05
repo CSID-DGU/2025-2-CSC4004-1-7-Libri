@@ -354,7 +354,7 @@ class MarlWrapper:
         os.chdir(MARL_DIR)
 
         try:
-            import config
+            import marl_config as config
             from qmix_model import QMIX_Learner
             from environment import MARLStockEnv
             import pickle
@@ -421,7 +421,7 @@ class MarlWrapper:
             if not self.model_loaded:
                 return []
 
-            from config import WINDOW_SIZE
+            from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from data_processor import DataProcessor
             from utils import convert_joint_action_to_signal
@@ -526,7 +526,7 @@ class MarlWrapper:
             if not self.model_loaded:
                 return None
 
-            from config import WINDOW_SIZE
+            from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from utils import convert_joint_action_to_signal, get_top_features_marl
 
@@ -570,9 +570,9 @@ class MarlWrapper:
             top_features = get_top_features_marl(agent_analyses)
 
             signal_int = 2
-            if final_signal_str == "Long":
+            if final_signal_str in ["매수", "적극 매수"]:
                 signal_int = 0
-            elif final_signal_str == "Short":
+            elif final_signal_str in ["매도", "적극 매도"]:
                 signal_int = 1
 
             return {

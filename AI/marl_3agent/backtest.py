@@ -5,7 +5,7 @@ import pickle
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-from config import DEVICE, N_AGENTS, WINDOW_SIZE
+from marl_config import DEVICE, N_AGENTS, WINDOW_SIZE
 from data_processor import DataProcessor
 from environment import MARLStockEnv
 from qmix_model import QMIX_Learner

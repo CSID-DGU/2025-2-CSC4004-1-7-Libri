@@ -4,7 +4,7 @@ import pickle
 import time
 import os
 
-from config import (DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
+from marl_config import (DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
                    TARGET_UPDATE_FREQ, NUM_EPISODES, EPSILON_START, EPSILON_END, 
                    EPSILON_DECAY_STEPS, WARMUP_STEPS)
 from data_processor import DataProcessor
