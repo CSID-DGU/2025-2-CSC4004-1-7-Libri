@@ -2,7 +2,7 @@ import torch
 import pandas as pd
 import pickle
 import numpy as np
-from config import DEVICE, WINDOW_SIZE
+from marl_config import DEVICE, WINDOW_SIZE
 from data_processor import DataProcessor
 from qmix_model import QMIX_Learner
 from environment import MARLStockEnv

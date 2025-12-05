@@ -2,7 +2,7 @@ import random
 import torch
 import numpy as np
 from collections import deque, namedtuple
-from config import N_AGENTS
+from marl_config import N_AGENTS
 
 class ReplayBuffer:
     def __init__(self, buffer_size, batch_size, device):

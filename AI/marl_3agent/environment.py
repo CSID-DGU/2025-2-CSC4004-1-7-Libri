@@ -1,7 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from config import N_AGENTS, WINDOW_SIZE, REWARD_SCALE
+from marl_config import N_AGENTS, WINDOW_SIZE, REWARD_SCALE
 
 class MARLStockEnv(gym.Env):
     def __init__(self, features_df, prices_df, 

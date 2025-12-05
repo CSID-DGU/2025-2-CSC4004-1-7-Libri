@@ -5,7 +5,7 @@ import pickle
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 # --- Config ---
-from config import TICKER, VIX_TICKER, START_DATE, END_DATE
+from marl_config import TICKER, VIX_TICKER, START_DATE, END_DATE
 
 # ---- pandas-ta 호환 래퍼 -----------------------------
 try:

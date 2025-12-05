@@ -5,7 +5,7 @@ import pandas as pd
 import time 
 import os # 파일 존재 여부 확인용
 
-from config import (
+from marl_config import (
     DEVICE, N_AGENTS, WINDOW_SIZE, BUFFER_SIZE, BATCH_SIZE, 
     TARGET_UPDATE_FREQ, NUM_EPISODES, EPSILON_START, EPSILON_END, EPSILON_DECAY_STEPS, WARMUP_STEPS
 )
