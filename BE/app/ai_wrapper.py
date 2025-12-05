@@ -9,7 +9,7 @@ import yaml
 import warnings
 from typing import Dict, Any, List, Optional
 
-from gpt_service import interpret_model_output  # ★ GPT 서비스 import 추가
+from .gpt_service import interpret_model_output
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -682,8 +682,9 @@ class AIService:
             else "안정적인"
         )
 
+        # 규칙 기반 설명에는 [RULE] 태그
         return (
-            f"{model_label} 모델이 최근 학습된 패턴을 바탕으로 "
+            f"[RULE] {model_label} 모델이 최근 학습된 패턴을 바탕으로 "
             f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다. "
             f"최근 백테스트 기준 전략 승률은 대략 {win_rate * 100:.1f}% 수준입니다."
         )
@@ -776,7 +777,7 @@ class AIService:
                             importance_val = 0.0
                         feature_importance[fname] = importance_val
 
-                # GPT 서비스 호출 (동기 함수라고 가정)
+                # GPT 서비스 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
                     technical_indicators=technical_indicators,
@@ -784,7 +785,8 @@ class AIService:
                 )
 
                 if isinstance(gpt_explanation, str) and gpt_explanation.strip():
-                    explanation = gpt_explanation.strip()
+                    # GPT가 성공하면 [GPT] 태그로 덮어쓰기
+                    explanation = "[GPT] " + gpt_explanation.strip()
 
             except Exception as gpt_err:
                 # GPT 호출 실패 시에는 기존 규칙 기반 설명 사용
