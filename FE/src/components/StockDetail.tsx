@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
 import Header from "@/components/layout/Header";
 import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
 import CaretDownIcon from "@/assets/icons/caret-down.svg?react";
@@ -8,7 +8,7 @@ import CrownIcon from "@/assets/icons/crown.svg?react";
 import { createChart } from "lightweight-charts";
 import IndicatorModal from "./IndicatorModal";
 import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsByStyle";
-import { type InvestmentStyle, useInvestmentStyle } from "../contexts/InvestmentStyleContext";
+import { type InvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
 import {
     DayTrading,
@@ -34,27 +34,192 @@ interface StockDetailProps {
     onBack: () => void;
 }
 
-function SparklineChart() {
+// Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
+const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
+
+// 거래 내역 계산 함수
+function calculateTradingHistory(
+    aiHistory: Array<{ date: string; signal: number; daily_return: number; strategy_return: number }>,
+    stockHistory: Array<{ date: string; open: number; high: number; low: number; close: number }>,
+    initialCapital: number
+): DayTrading[] {
+    const history: DayTrading[] = [];
+    let cash = initialCapital;
+    let shares = 0;
+    let avgPrice = 0;
+
+    // 주가 데이터를 날짜별로 매핑
+    const priceMap = new Map(
+        stockHistory.map(item => [item.date.split('T')[0], item])
+    );
+
+    aiHistory.forEach((signal) => {
+        const dateStr = signal.date;
+        const priceData = priceMap.get(dateStr);
+        
+        if (!priceData) return;
+
+        const trades: SimulatedTrade[] = [];
+
+        // signal: 0 = BUY (Long), 1 = SELL (Short), 2 = HOLD
+        if (signal.signal === 0) {
+            // 매수 시그널
+            const buyPrice = priceData.low; // 당일 최저가로 매수
+            const maxShares = Math.floor(cash / buyPrice);
+
+            if (maxShares > 0) {
+                // 매수 가능
+                const buyShares = maxShares;
+                const cost = buyShares * buyPrice;
+                
+                // 평균 단가 계산
+                if (shares > 0) {
+                    avgPrice = ((avgPrice * shares) + cost) / (shares + buyShares);
+                } else {
+                    avgPrice = buyPrice;
+                }
+                
+                shares += buyShares;
+                cash -= cost;
+
+                trades.push({
+                    type: "buy",
+                    quantity: buyShares,
+                    pricePerShare: buyPrice,
+                    time: dateStr,
+                });
+            } else {
+                // 매수 불가 (자금 부족)
+                trades.push({
+                    type: "hold",
+                    quantity: 0,
+                    pricePerShare: 0,
+                    time: dateStr,
+                    reason: "매수 자금이 부족합니다.",
+                });
+            }
+        } else if (signal.signal === 1) {
+            // 매도 시그널
+            if (shares > 0) {
+                const sellPrice = priceData.high; // 당일 최고가로 매도
+                const sellShares = shares;
+                const revenue = sellShares * sellPrice;
+                const profit = revenue - (avgPrice * sellShares);
+                const profitPercent = ((sellPrice - avgPrice) / avgPrice) * 100;
+
+                cash += revenue;
+                shares = 0;
+                avgPrice = 0;
+
+                trades.push({
+                    type: "sell",
+                    quantity: sellShares,
+                    pricePerShare: sellPrice,
+                    time: dateStr,
+                    profit: Math.round(profit),
+                    profitPercent: Math.round(profitPercent * 10) / 10,
+                });
+            } else {
+                // 매도 불가 (보유 주식 없음)
+                trades.push({
+                    type: "hold",
+                    quantity: 0,
+                    pricePerShare: 0,
+                    time: dateStr,
+                    reason: "보유 중인 주식이 없습니다.",
+                });
+            }
+        } else {
+            // 보유 시그널
+            trades.push({
+                type: "hold",
+                quantity: 0,
+                pricePerShare: 0,
+                time: dateStr,
+                reason: "리브리 전략에 따라 변동이 없습니다.",
+            });
+        }
+
+        if (trades.length > 0) {
+            history.push({
+                date: dateStr,
+                trades,
+            });
+        }
+    });
+
+    return history;
+}
+
+function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartInstanceRef = useRef<ReturnType<typeof createChart> | null>(null);
+    const seriesRef = useRef<any>(null);
 
     useEffect(() => {
         const container = chartContainerRef.current;
         if (!container) return;
 
+        // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
+        // 종목별로 동일한 데이터를 반환하도록 캐싱
         const generateMockData = () => {
+            // 이미 생성된 Mock 데이터가 있으면 재사용
+            if (mockDataCache[stockSymbol]) {
+                return mockDataCache[stockSymbol];
+            }
+
             const data = [];
             const basePrice = 60000;
             const now = new Date();
 
+            // 종목 이름을 시드로 사용하여 일관된 랜덤 데이터 생성
+            let seed = 0;
+            for (let i = 0; i < stockSymbol.length; i++) {
+                seed += stockSymbol.charCodeAt(i);
+            }
+
             for (let i = 30; i >= 0; i--) {
                 const date = new Date(now);
                 date.setDate(date.getDate() - i);
-                const randomChange = (Math.random() - 0.5) * 3000;
+                
+                // 시드 기반 의사 랜덤 생성 (동일한 종목은 항상 같은 패턴)
+                seed = (seed * 9301 + 49297) % 233280;
+                const randomChange = ((seed / 233280) - 0.5) * 3000;
                 const price = basePrice + randomChange + (30 - i) * 100;
+                
                 data.push({ time: Math.floor(date.getTime() / 1000) as any, value: price });
             }
+
+            // 캐시에 저장
+            mockDataCache[stockSymbol] = data;
             return data;
+        };
+
+        const loadChartData = async () => {
+            try {
+                // 백엔드에서 최근 30일 주가 데이터 가져오기
+                const historyData = await api.getStockHistory(stockSymbol, 30);
+                
+                // 데이터를 차트 형식으로 변환
+                const chartData = historyData
+                    .map((item: any) => ({
+                        time: Math.floor(new Date(item.date).getTime() / 1000) as any,
+                        value: item.close || 0,
+                    }))
+                    .sort((a: any, b: any) => a.time - b.time);
+
+                if (chartInstanceRef.current && seriesRef.current) {
+                    seriesRef.current.setData(chartData);
+                    chartInstanceRef.current.timeScale().fitContent();
+                }
+            } catch (error) {
+                console.error("주가 데이터 로딩 실패, Mock 데이터 사용:", error);
+                // 에러 시 Mock 데이터 사용
+                if (chartInstanceRef.current && seriesRef.current) {
+                    seriesRef.current.setData(generateMockData());
+                    chartInstanceRef.current.timeScale().fitContent();
+                }
+            }
         };
 
         const chart = createChart(container, {
@@ -71,7 +236,7 @@ function SparklineChart() {
         });
         chartInstanceRef.current = chart;
 
-        const series = chart.addAreaSeries({
+        seriesRef.current = chart.addAreaSeries({
             lineColor: "#1FA9A4",
             lineWidth: 2,
             topColor: "rgba(31,169,164,0.16)",
@@ -81,8 +246,7 @@ function SparklineChart() {
             crosshairMarkerVisible: false,
         });
 
-        series.setData(generateMockData());
-        chart.timeScale().fitContent();
+        loadChartData();
 
         const resizeObserver = new ResizeObserver((entries) => {
             const entry = entries[0];
@@ -99,17 +263,19 @@ function SparklineChart() {
             chart.remove();
             chartInstanceRef.current = null;
         };
-    }, []);
+    }, [stockSymbol]);
 
     return <div ref={chartContainerRef} className="h-12 w-full" />;
 }
 
 function RecommendationCard({
+    stockName,
     recommendation,
     aiExplanation,
     loading,
     error,
 }: {
+    stockName: string;
     recommendation: string;
     aiExplanation: string;
     loading: boolean;
@@ -127,7 +293,7 @@ function RecommendationCard({
                         {recommendation}
                     </p>
                 </div>
-                <SparklineChart />
+                <SparklineChart stockSymbol={stockName} />
                 <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
                 <div className="flex flex-col gap-[4px] text-[#151b26]">
                     <div className="flex items-center gap-[4px]">
@@ -299,14 +465,36 @@ function getTop3ReferenceLabel(now = new Date()) {
 function Top3AnalysisSection({
     investmentStyle,
     onIndicatorClick,
+    xaiFeatures,
 }: {
     investmentStyle: InvestmentStyle;
     onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
+    xaiFeatures: Array<{
+        base: string;
+        shap: number;
+        direction: string;
+        description: string;
+    }>;
 }) {
-    const indicatorData = getIndicatorsByStyle(investmentStyle);
-    const indicators = indicatorData.top3;
     const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
+    
+    // 백엔드에서 받은 XAI 데이터를 IndicatorInfo 형식으로 변환
+    const indicators: IndicatorInfo[] = xaiFeatures.length > 0 
+        ? xaiFeatures.slice(0, 3).map((feature, index) => ({
+            id: `xai-${index}`,
+            title: feature.base,
+            value: Math.abs(feature.shap).toFixed(4),
+            status: (feature.direction === "지지" ? "positive" : "negative") as "positive" | "negative" | "neutral",
+            shortDescription: `${feature.description} - AI가 이 지표를 ${feature.direction} 요인으로 판단했습니다. (영향도: ${Math.abs(feature.shap).toFixed(4)})`,
+            detailedDescription: feature.description,
+            interpretationPoints: [
+                `이 지표는 AI 모델의 결정에 ${feature.direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
+                `SHAP 값: ${feature.shap.toFixed(6)}`,
+                `${feature.direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
+            ],
+        }))
+        : getIndicatorsByStyle(investmentStyle).top3; // 폴백: 기존 정적 데이터
     const handleGuideClick = () => {
         onIndicatorClick({
             title: "AI 선정 기준",
@@ -467,6 +655,7 @@ function StockDetailContent({
     tradingHistory,
     loading,
     error,
+    xaiFeatures,
 }: {
     stockName: string;
     onBack: () => void;
@@ -479,6 +668,12 @@ function StockDetailContent({
     tradingHistory: DayTrading[];
     loading: boolean;
     error: string | null;
+    xaiFeatures: Array<{
+        base: string;
+        shap: number;
+        direction: string;
+        description: string;
+    }>;
 }) {
     return (
         <div
@@ -490,6 +685,7 @@ function StockDetailContent({
             </div>
             <div className="flex flex-col gap-6">
                 <RecommendationCard
+                    stockName={stockName}
                     recommendation={recommendation}
                     aiExplanation={aiExplanation}
                     loading={loading}
@@ -502,6 +698,7 @@ function StockDetailContent({
                     <Top3AnalysisSection
                         investmentStyle={investmentStyle}
                         onIndicatorClick={onIndicatorClick}
+                        xaiFeatures={xaiFeatures}
                     />
                 )}
                 {activeTab === "analysis" && <IndicatorSection investmentStyle={investmentStyle} />}
@@ -517,25 +714,22 @@ function StockDetailContent({
 }
 
 export default function StockDetail({ stockName, investmentStyle, initialInvestment, onBack }: StockDetailProps) {
-    const [activeTab, setActiveTab] = useState<TabType>("analysis");
+    const [activeTab, setActiveTab] = useState<TabType>("top3");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
     const [aiData, setAiData] = useState({
         recommendation: "분석 중...",
         aiExplanation: "데이터를 분석하고 있습니다...",
         indicators: {},
+        xaiFeatures: [] as Array<{
+            base: string;
+            shap: number;
+            direction: string;
+            description: string;
+        }>,
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const { modelType } = useInvestmentStyle();
-    const priceSeries = useMemo(() => generateMockPriceSeries(stockName), [stockName]);
-    const actionPlan = useMemo(
-        () => generateRandomActions(stockName, priceSeries.length || 5),
-        [stockName, priceSeries.length],
-    );
-    const { history: tradingHistory } = useMemo(
-        () => simulateTradingHistory(initialInvestment, priceSeries, actionPlan),
-        [initialInvestment, priceSeries, actionPlan],
-    );
+    const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -569,45 +763,48 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 setLoading(true);
                 setError(null);
 
-                const mockFeatures = {
-                    SMA20: 62000,
-                    MACD: 0.5,
-                    RSI: 65,
-                    Stoch_K: 70,
-                    EMA12: 61500,
-                    EMA26: 60800,
-                    Volume: 1500000,
-                    ATR: 2500,
-                    Bollinger_B: 0.8,
-                    VIX: 18.5,
-                    ROA: 8.2,
-                    DebtRatio: 45.3,
-                    AnalystRating: 3.5,
+                // 종목 코드 변환 (삼성전자 -> 005930)
+                const symbolMap: Record<string, string> = {
+                    "삼성전자": "005930.KS",
+                    "SK하이닉스": "000660.KS",
                 };
+                const symbol = symbolMap[stockName] || "005930.KS";
+
+                // 투자 성향 변환 (공격형 -> aggressive, 안정형 -> conservative)
+                const styleMap: Record<string, "aggressive" | "conservative"> = {
+                    "공격형": "aggressive",
+                    "안정형": "conservative",
+                };
+                const investmentStyleEn = styleMap[investmentStyle] || "aggressive";
 
                 let result;
                 try {
+                    // 백엔드 API 호출
                     await api.health();
-                    result = await api.predictByInvestmentStyle(modelType, mockFeatures);
+                    result = await api.predictByInvestmentStyle(symbol, investmentStyleEn);
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
-                    result = getMockPredictionResult(modelType);
+                    // Mock 데이터 폴백
+                    result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
                 }
 
                 setAiData({
-                    recommendation: translateSignal(result.signal),
+                    recommendation: translateSignal(result.signal || result.action),
                     aiExplanation:
-                        result.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                        result.gpt_explanation || result.explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
                     indicators: result.technical_indicators || {},
+                    xaiFeatures: result.xai_features || [],
                 });
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
-                const fallback = getMockPredictionResult(modelType);
+                // 최종 폴백
+                const fallback = getMockPredictionResult("model3");
                 setAiData({
                     recommendation: translateSignal(fallback.signal),
                     aiExplanation: fallback.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
                     indicators: {},
+                    xaiFeatures: [],
                 });
             } finally {
                 setLoading(false);
@@ -615,7 +812,49 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
         };
 
         loadAIAnalysis();
-    }, [modelType]);
+    }, [stockName, investmentStyle]);
+
+    // 거래 내역 로드
+    useEffect(() => {
+        const loadTradingHistory = async () => {
+            try {
+
+                // 종목 코드 변환
+                const symbolMap: Record<string, string> = {
+                    "삼성전자": "005930.KS",
+                    "SK하이닉스": "000660.KS",
+                };
+                const symbol = symbolMap[stockName] || "005930.KS";
+
+                // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
+                const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
+
+                // 30일 전부터 데이터 가져오기
+                const startDate = new Date();
+                startDate.setDate(startDate.getDate() - 30);
+                const startDateStr = startDate.toISOString().split('T')[0];
+
+                // AI 히스토리와 주가 데이터 동시 가져오기
+                const [aiHistory, stockHistory] = await Promise.all([
+                    api.getAIHistory(modelType, startDateStr),
+                    api.getStockHistory(symbol, 30)
+                ]);
+
+                // 거래 내역 계산
+                const history = calculateTradingHistory(aiHistory, stockHistory, initialInvestment);
+                setTradingHistory(history);
+            } catch (error) {
+                console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
+                // 폴백: Mock 데이터 사용
+                const priceSeries = generateMockPriceSeries(stockName);
+                const actionPlan = generateRandomActions(stockName, priceSeries.length || 5);
+                const { history } = simulateTradingHistory(initialInvestment, priceSeries, actionPlan);
+                setTradingHistory(history);
+            }
+        };
+
+        loadTradingHistory();
+    }, [stockName, investmentStyle, initialInvestment]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
@@ -631,6 +870,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 tradingHistory={tradingHistory}
                 loading={loading}
                 error={error}
+                xaiFeatures={aiData.xaiFeatures}
             />
 
             <IndicatorModal indicator={selectedIndicator} onClose={() => setSelectedIndicator(null)} />

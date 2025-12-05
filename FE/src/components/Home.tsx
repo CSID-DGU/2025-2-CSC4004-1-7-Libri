@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
@@ -6,6 +6,7 @@ import LogoIcon from "@/assets/icons/Logo.svg?react";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";
+import { api } from "@/api/client";
 import {
     generateMockPriceSeries,
     generateRandomActions,
@@ -334,34 +335,79 @@ export default function Home({
 }: HomeProps) {
     const [currentView, setCurrentView] = useState<"list" | "detail">("list");
     const [selectedStockName, setSelectedStockName] = useState("");
+    const [stockPerformance, setStockPerformance] = useState<StockPerformanceMap>({});
+    const [loading, setLoading] = useState(true);
 
     const summaryStockName = stocks[0]?.name || "삼성전자";
-    const fallbackPerformance = useMemo(() => {
-        const priceSeries = generateMockPriceSeries(summaryStockName);
-        const actions = generateRandomActions(summaryStockName, priceSeries.length || 5);
-        const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
-        const profitRate = initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0;
-        return { profit: totalProfit, profitRate };
-    }, [initialInvestment, summaryStockName]);
-
-    const stockPerformance = useMemo<StockPerformanceMap>(() => {
-        if (!stocks.length) {
-            return {
-                [summaryStockName]: { ...fallbackPerformance },
-            };
-        }
-
-        return stocks.reduce<StockPerformanceMap>((acc, stock) => {
-            const priceSeries = generateMockPriceSeries(stock.name);
-            const actions = generateRandomActions(stock.name, priceSeries.length || 5);
+    
+    // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
+    const generateMockPerformance = useMemo(() => {
+        return (stockName: string) => {
+            const priceSeries = generateMockPriceSeries(stockName);
+            const actions = generateRandomActions(stockName, priceSeries.length || 5);
             const { totalProfit } = simulateTradingHistory(initialInvestment, priceSeries, actions);
-            acc[stock.name] = {
-                profit: totalProfit,
-                profitRate: initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0,
-            };
-            return acc;
-        }, {});
-    }, [stocks, initialInvestment, summaryStockName, fallbackPerformance]);
+            const profitRate = initialInvestment > 0 ? (totalProfit / initialInvestment) * 100 : 0;
+            return { profit: totalProfit, profitRate };
+        };
+    }, [initialInvestment]);
+
+    useEffect(() => {
+        const loadStockPerformance = async () => {
+            try {
+                setLoading(true);
+                
+                // 종목 코드 매핑
+                const symbolMap: Record<string, string> = {
+                    "삼성전자": "005930.KS",
+                    "SK하이닉스": "000660.KS",
+                };
+
+                const performanceMap: StockPerformanceMap = {};
+
+                // 각 종목에 대해 현재가와 수익률 계산
+                for (const stock of stocks.length > 0 ? stocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }]) {
+                    try {
+                        const symbol = symbolMap[stock.name] || "005930.KS";
+                        
+                        // 백엔드에서 최근 주가 데이터 가져오기
+                        const historyData = await api.getStockHistory(symbol, 2);
+                        
+                        if (historyData && historyData.length >= 2) {
+                            const todayPrice = historyData[historyData.length - 1].close;
+                            const yesterdayPrice = historyData[historyData.length - 2].close;
+                            
+                            // 간단한 수익률 계산 (실제로는 더 복잡한 로직 필요)
+                            const profit = (todayPrice - yesterdayPrice) * stock.quantity;
+                            const profitRate = ((todayPrice - yesterdayPrice) / yesterdayPrice) * 100;
+                            
+                            performanceMap[stock.name] = { profit, profitRate };
+                        } else {
+                            // 데이터가 부족하면 Mock 사용
+                            performanceMap[stock.name] = generateMockPerformance(stock.name);
+                        }
+                    } catch (error) {
+                        console.warn(`${stock.name} 데이터 로딩 실패, Mock 데이터 사용:`, error);
+                        performanceMap[stock.name] = generateMockPerformance(stock.name);
+                    }
+                }
+
+                setStockPerformance(performanceMap);
+            } catch (error) {
+                console.error("주식 성과 데이터 로딩 실패, Mock 데이터 사용:", error);
+                // 전체 실패 시 Mock 데이터 사용
+                const mockPerformance: StockPerformanceMap = {};
+                const stockList = stocks.length > 0 ? stocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }];
+                stockList.forEach(stock => {
+                    mockPerformance[stock.name] = generateMockPerformance(stock.name);
+                });
+                setStockPerformance(mockPerformance);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadStockPerformance();
+    }, [stocks, summaryStockName, initialInvestment, generateMockPerformance]);
 
     const aiTradeProfit = useMemo(
         () => Object.values(stockPerformance).reduce((acc, { profit }) => acc + profit, 0),

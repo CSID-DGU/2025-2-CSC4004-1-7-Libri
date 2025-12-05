@@ -32,114 +32,76 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
 
 export const api = {
   // 헬스 체크
-  health: () => apiCall('/health'),
+  health: () => apiCall('/'),
 
-  // 모델 관련
-  getModels: () => apiCall('/models/list'),
-  getModelStatus: () => apiCall('/models/status'),
-
-  // 예측 관련
-  predictMARL: (features: number[]) =>
-    apiCall('/predict/marl', {
+  // AI 예측 관련
+  predictByInvestmentStyle: (symbol: string, investmentStyle: 'aggressive' | 'conservative') => {
+    // 공격형 -> a2c, 안정형 -> marl
+    const mode = investmentStyle === 'aggressive' ? 'a2c' : 'marl';
+    return apiCall(`/ai/predict/${mode}`, {
       method: 'POST',
-      body: { features, symbol: 'AAPL' },
-    }),
-
-  predictModel2: (features: number[]) =>
-    apiCall('/predict/model2', {
-      method: 'POST',
-      body: { features, symbol: 'AAPL' },
-    }),
-
-  predictModel3: (features: number[]) =>
-    apiCall('/predict/model3', {
-      method: 'POST',
-      body: { features, symbol: 'AAPL' },
-    }),
-
-  // 포트폴리오 관련
-  setPortfolioCapital: (portfolioId: string, initialCapital: number) =>
-    apiCall('/portfolio/capital', {
-      method: 'POST',
-      body: { portfolio_id: portfolioId, initial_capital: initialCapital },
-    }),
-
-  getPortfolio: (portfolioId: string) =>
-    apiCall(`/portfolio/${portfolioId}`),
-
-  // 투자 내역 관련
-  createInvestmentRecord: (data: {
-    portfolio_id: string;
-    model_type: string;
-    signal: string;
-    entry_price: number;
-    shares: number;
-    portfolio_value: number;
-    pnl: number;
-    confidence_score: number;
-    gpt_explanation?: string;
-  }) =>
-    apiCall('/investment/record', {
-      method: 'POST',
-      body: data,
-    }),
-
-  getInvestmentHistory: (filters?: {
-    portfolio_id?: string;
-    model_type?: string;
-    start_date?: string;
-    end_date?: string;
-    page?: number;
-    page_size?: number;
-  }) => {
-    const params = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined) params.append(key, String(value));
-      });
-    }
-    return apiCall(`/investment/history?${params.toString()}`);
-  },
-
-  getPerformanceMetrics: (filters?: {
-    portfolio_id?: string;
-    model_type?: string;
-    start_date?: string;
-    end_date?: string;
-  }) => {
-    const params = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined) params.append(key, String(value));
-      });
-    }
-    return apiCall(`/investment/metrics?${params.toString()}`);
-  },
-
-  // 기술 지표 관련
-  getIndicatorHistory: (filters?: {
-    symbol?: string;
-    indicator_name?: string;
-    start_date?: string;
-    end_date?: string;
-    aggregation?: string;
-    limit?: number;
-  }) => {
-    const params = new URLSearchParams();
-    if (filters) {
-      Object.entries(filters).forEach(([key, value]) => {
-        if (value !== undefined) params.append(key, String(value));
-      });
-    }
-    return apiCall(`/indicators/history?${params.toString()}`);
-  },
-
-  // 투자 성향별 예측 API 호출
-  predictByInvestmentStyle: (modelType: string, features: Record<string, number>) => {
-    const endpoint = `/predict/${modelType}`;
-    return apiCall(endpoint, {
-      method: 'POST',
-      body: { features, symbol: '005930' },
+      body: { 
+        symbol,
+        investment_style: investmentStyle 
+      },
     });
   },
+
+  // 주가 히스토리 조회
+  getStockHistory: (symbol: string, days: number = 30) =>
+    apiCall(`/stocks/${symbol}/history?days=${days}`),
+
+  // 포트폴리오 관련
+  getPortfolio: (userId: number) =>
+    apiCall(`/portfolio/${userId}`),
+
+  addHolding: (userId: number, holding: {
+    symbol: string;
+    quantity: number;
+    avg_price: number;
+  }) =>
+    apiCall(`/portfolio/${userId}/holdings`, {
+      method: 'POST',
+      body: holding,
+    }),
+
+  sellHolding: (userId: number, sellData: {
+    symbol: string;
+    quantity: number;
+    sell_price: number;
+  }) =>
+    apiCall(`/portfolio/${userId}/sell`, {
+      method: 'POST',
+      body: sellData,
+    }),
+
+  // 투자 내역 조회
+  getInvestmentHistory: (userId: number) =>
+    apiCall(`/portfolio/${userId}/history`),
+
+  // 사용자 관련
+  signup: (email: string, password: string) =>
+    apiCall('/users/signup', {
+      method: 'POST',
+      body: { email, password },
+    }),
+
+  login: (email: string, password: string) =>
+    apiCall('/users/login', {
+      method: 'POST',
+      body: { email, password },
+    }),
+
+  getUser: (userId: number) =>
+    apiCall(`/users/me?user_id=${userId}`),
+
+  updateInvestmentStyle: (userId: number, investmentStyle: string) =>
+    apiCall(`/users/${userId}/investment-style`, {
+      method: 'PUT',
+      body: { investment_style: investmentStyle },
+    }),
+
+  // AI 거래 히스토리 조회
+  getAIHistory: (modelType: 'a2c' | 'marl', startDate: string) =>
+    apiCall(`/ai/history?model_type=${modelType}&start_date=${startDate}`),
 };
