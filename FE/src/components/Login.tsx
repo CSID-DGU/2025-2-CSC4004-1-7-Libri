@@ -3,13 +3,14 @@ import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 import EyeIcon from "@/assets/icons/eye.svg?react";
 import EyeSlashIcon from "@/assets/icons/eye-slash.svg?react";
+import { api } from "@/api/client";
 
 interface LoginProps {
     onBack: () => void;
-    onSubmit?: (data: { email: string; password: string }) => Promise<boolean> | boolean;
+    onSuccess?: (data: { user_id: number; email: string }) => Promise<void> | void;
 }
 
-export default function Login({ onBack, onSubmit }: LoginProps) {
+export default function Login({ onBack, onSuccess }: LoginProps) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -23,9 +24,10 @@ export default function Login({ onBack, onSubmit }: LoginProps) {
         setError("");
         setSubmitting(true);
         try {
-            const result = await onSubmit?.({ email: email.trim(), password: password.trim() });
-            if (result === false) {
-                setError("이메일 주소 또는 비밀번호가 일치하지 않습니다.");
+            const response = await api.login(email.trim(), password.trim());
+            setError("");
+            if (onSuccess) {
+                await onSuccess(response);
             }
         } catch {
             setError("이메일 주소 또는 비밀번호가 일치하지 않습니다.");
@@ -141,7 +143,7 @@ export default function Login({ onBack, onSubmit }: LoginProps) {
                             )}
                         </div>
                         {error && (
-                            <p className="body-3" style={{ color: "var(--component-red)" }}>
+                            <p className="body-3" style={{ color: "var(--component-red)", marginTop: 4 }}>
                                 {error}
                             </p>
                         )}
@@ -160,7 +162,7 @@ export default function Login({ onBack, onSubmit }: LoginProps) {
                     <div className="flex flex-row items-center justify-center size-full">
                         <div className="box-border content-stretch flex gap-[2px] items-center justify-center px-[8px] py-[12px] relative w-full">
                             <div className="flex flex-col font-['Pretendard:Bold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white tracking-[0.16px]">
-                                <p className="leading-[1.5] whitespace-pre">로그인</p>
+                                <p className="leading-[1.5] title-3 whitespace-pre">로그인</p>
                             </div>
                         </div>
                     </div>
