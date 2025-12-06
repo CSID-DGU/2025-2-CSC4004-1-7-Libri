@@ -174,15 +174,15 @@ export default function App() {
             const userInfo = await api.getUser(user.user_id);
             const completed = Boolean(userInfo?.onboarding_completed);
             dispatch({ type: "SET_ONBOARDING_STATUS", completed });
-            goToPage(completed ? "home" : "onboarding");
         } catch (error) {
             console.error("사용자 정보를 불러오지 못했습니다:", error);
+        } finally {
             goToPage("home");
         }
     };
 
     const handleRegisterSuccess = () => {
-        goToPage("login");
+        goToPage("onboarding");
     };
 
     // 온보딩 플로우 핸들러
