@@ -1,4 +1,4 @@
-import { useReducer } from "react";
+import { useReducer, useEffect } from "react";
 import StartScreen from "./components/StartScreen";
 import Register from "./components/Register";
 import Login from "./components/Login";
@@ -64,7 +64,8 @@ type Action =
     | { type: "RESET_ADD_STOCK_FORM" }
     | { type: "SET_USER"; userId: number; email: string }
     | { type: "SET_ONBOARDING_STATUS"; completed: boolean }
-    | { type: "LOGOUT" };
+    | { type: "LOGOUT" }
+    | { type: "HYDRATE_FROM_STORAGE"; payload: Partial<Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">> };
 
 const initialState: State = {
     currentPage: "start",
@@ -144,14 +145,62 @@ function reducer(state: State, action: Action): State {
                 onboardingForm: { ...initialState.onboardingForm },
                 addStockForm: { ...initialState.addStockForm },
             };
+        case "HYDRATE_FROM_STORAGE":
+            return {
+                ...state,
+                initialInvestment: action.payload.initialInvestment ?? state.initialInvestment,
+                investmentStyle: action.payload.investmentStyle ?? state.investmentStyle,
+                stocks: action.payload.stocks ?? state.stocks,
+                onboardingForm: action.payload.onboardingForm ?? state.onboardingForm,
+                addStockForm: action.payload.addStockForm ?? state.addStockForm,
+                onboardingCompleted: action.payload.onboardingCompleted ?? state.onboardingCompleted,
+            };
 
         default:
             return state;
     }
 }
 
+const STORAGE_KEY = "libri_onboarding_state";
+
 export default function App() {
     const [state, dispatch] = useReducer(reducer, initialState);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        try {
+            const stored = window.localStorage.getItem(STORAGE_KEY);
+            if (!stored) return;
+            const parsed = JSON.parse(stored);
+            dispatch({ type: "HYDRATE_FROM_STORAGE", payload: parsed });
+        } catch (error) {
+            console.warn("저장된 온보딩 정보를 불러오지 못했습니다:", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const data = {
+            initialInvestment: state.initialInvestment,
+            investmentStyle: state.investmentStyle,
+            stocks: state.stocks,
+            onboardingForm: state.onboardingForm,
+            addStockForm: state.addStockForm,
+            onboardingCompleted: state.onboardingCompleted,
+        };
+        try {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        } catch (error) {
+            console.warn("온보딩 정보를 저장하지 못했습니다:", error);
+        }
+    }, [
+        state.initialInvestment,
+        state.investmentStyle,
+        state.stocks,
+        state.onboardingForm,
+        state.addStockForm,
+        state.onboardingCompleted,
+    ]);
 
     // 페이지 네비게이션 핸들러
     const goToPage = (page: Page) => dispatch({ type: "SET_PAGE", page });
@@ -304,6 +353,7 @@ export default function App() {
                         onAddStock={handleAddStock}
                         investmentStyle={(state.investmentStyle || "공격형") as InvestmentStyle}
                         onOpenSettings={() => goToPage("settings")}
+                        userId={state.userId}
                     />
                 )}
                 {state.currentPage === "settings" && (
