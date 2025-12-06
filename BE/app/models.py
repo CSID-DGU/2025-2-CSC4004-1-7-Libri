@@ -11,6 +11,7 @@ class User(Base):
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
     investment_style = Column(String, default=None, nullable=True)
+    onboarding_completed = Column(Boolean, default=False)  # 온보딩 완료 여부
 
     # [추가] 유저와 포트폴리오 1:1 연결
     portfolio = relationship("Portfolio", back_populates="owner", uselist=False)
