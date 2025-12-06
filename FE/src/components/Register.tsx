@@ -5,24 +5,46 @@ import EyeIcon from "@/assets/icons/eye.svg?react";
 import EyeSlashIcon from "@/assets/icons/eye-slash.svg?react";
 import CheckboxSelectIcon from "@/assets/icons/checkbox-select-white.svg?react";
 import CheckboxUnselectIcon from "@/assets/icons/checkbox-unselect.svg?react";
+import { api } from "@/api/client";
 
 interface RegisterProps {
     onBack: () => void;
-    onSubmit?: (data: { email: string; password: string }) => void;
+    onSuccess?: () => void;
 }
 
-export default function Register({ onBack, onSubmit }: RegisterProps) {
+export default function Register({ onBack, onSuccess }: RegisterProps) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [agreed, setAgreed] = useState(false);
+    const [error, setError] = useState("");
+    const [submitting, setSubmitting] = useState(false);
 
     const canSubmit =
-        email.trim().length > 0 && password.trim().length > 0 && agreed;
+        email.trim().length > 0 && password.trim().length > 0 && agreed && !submitting;
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!canSubmit) return;
-        onSubmit?.({ email: email.trim(), password: password.trim() });
+        setError("");
+        setSubmitting(true);
+        try {
+            await api.signup(email.trim(), password.trim());
+            onSuccess?.();
+        } catch (err) {
+            const detailFromBody = (err as any)?.body?.detail;
+            const fallbackMessage = err instanceof Error ? err.message : "";
+            const detail =
+                typeof detailFromBody === "string" && detailFromBody.length > 0
+                    ? detailFromBody
+                    : fallbackMessage;
+            if (detail.includes("Email already registered")) {
+                setError("이미 존재하는 계정입니다.");
+            } else {
+                setError("회원가입에 실패했습니다. 다시 시도해 주세요.");
+            }
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
@@ -127,6 +149,11 @@ export default function Register({ onBack, onSubmit }: RegisterProps) {
                                 </button>
                             )}
                         </div>
+                        {error && (
+                            <p className="body-3" style={{ color: "var(--component-red)", marginTop: 4 }}>
+                                {error}
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>
@@ -165,7 +192,7 @@ export default function Register({ onBack, onSubmit }: RegisterProps) {
                     <div className="flex flex-row items-center justify-center size-full">
                         <div className="box-border content-stretch flex gap-[2px] items-center justify-center px-[8px] py-[12px] relative w-full">
                             <div className="flex flex-col font-['Pretendard:Bold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white tracking-[0.16px]">
-                                <p className="leading-[1.5] whitespace-pre">가입하기</p>
+                                <p className="leading-[1.5] title-3 whitespace-pre">가입하기</p>
                             </div>
                         </div>
                     </div>

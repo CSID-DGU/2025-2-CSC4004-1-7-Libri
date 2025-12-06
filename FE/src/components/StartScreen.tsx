@@ -29,11 +29,12 @@ export default function StartScreen({ onStart, onSignUp, onLogin }: StartScreenP
                     type="button"
                     onClick={onLogin ?? onStart}
                     className="relative rounded-[8px] shrink-0 w-full transition-colors bg-[#1FA9A4]"
+                    style={{ width: "calc(100% - 40px)", marginInline: 20 }}
                 >
                     <div className="flex flex-row items-center justify-center size-full">
                         <div className="box-border content-stretch flex gap-[2px] items-center justify-center px-[8px] py-[12px] relative w-full">
                             <div className="flex flex-col font-['Pretendard:Bold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white tracking-[0.16px]">
-                                <p className="leading-[1.5] whitespace-pre">로그인</p>
+                                <p className="leading-[1.5] title-3 whitespace-pre">로그인</p>
                             </div>
                         </div>
                     </div>
@@ -41,8 +42,13 @@ export default function StartScreen({ onStart, onSignUp, onLogin }: StartScreenP
                 <button
                     type="button"
                     onClick={onSignUp}
-                    className="underline font-semibold text-[16px] text-center w-full"
-                    style={{ color: "var(--achromatic-500)", marginTop: 16 }}
+                    className="underline title-3 text-center w-full"
+                    style={{
+                        color: "var(--achromatic-500)",
+                        marginTop: 16,
+                        width: "calc(100% - 40px)",
+                        marginInline: 20,
+                    }}
                 >
                     회원가입하기
                 </button>
