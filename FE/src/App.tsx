@@ -10,6 +10,7 @@ import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
 import Settings from "./components/Settings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
+import { api } from "./api/client";
 
 type Page =
     | "start"
@@ -47,6 +48,9 @@ interface State {
     stocks: Stock[];
     onboardingForm: FormData;
     addStockForm: FormData;
+    userId: number | null;
+    userEmail: string | null;
+    onboardingCompleted: boolean;
 }
 
 type Action =
@@ -57,7 +61,10 @@ type Action =
     | { type: "SET_INVESTMENT_STYLE"; style: InvestmentStyle | "" }
     | { type: "COMPLETE_ONBOARDING"; style: InvestmentStyle }
     | { type: "ADD_STOCK" }
-    | { type: "RESET_ADD_STOCK_FORM" };
+    | { type: "RESET_ADD_STOCK_FORM" }
+    | { type: "SET_USER"; userId: number; email: string }
+    | { type: "SET_ONBOARDING_STATUS"; completed: boolean }
+    | { type: "LOGOUT" };
 
 const initialState: State = {
     currentPage: "start",
@@ -66,6 +73,9 @@ const initialState: State = {
     stocks: [],
     onboardingForm: { stockName: "", quantity: "", price: "" },
     addStockForm: { stockName: "", quantity: "", price: "" },
+    userId: null,
+    userEmail: null,
+    onboardingCompleted: false,
 };
 
 function createStock(form: FormData, logoUrl?: string): Stock {
@@ -109,6 +119,7 @@ function reducer(state: State, action: Action): State {
                 investmentStyle: action.style,
                 stocks: [createStock(state.onboardingForm)],
                 currentPage: "home",
+                onboardingCompleted: true,
             };
 
         case "ADD_STOCK":
@@ -122,6 +133,16 @@ function reducer(state: State, action: Action): State {
             return {
                 ...state,
                 addStockForm: { stockName: "", quantity: "", price: "" },
+            };
+        case "SET_USER":
+            return { ...state, userId: action.userId, userEmail: action.email };
+        case "SET_ONBOARDING_STATUS":
+            return { ...state, onboardingCompleted: action.completed };
+        case "LOGOUT":
+            return {
+                ...initialState,
+                onboardingForm: { ...initialState.onboardingForm },
+                addStockForm: { ...initialState.addStockForm },
             };
 
         default:
@@ -147,13 +168,21 @@ export default function App() {
         goToPage("login");
     };
 
-    const handleLoginSubmit = async () => {
-        goToPage("home");
-        return true;
+    const handleLoginSuccess = async (user: { user_id: number; email: string }) => {
+        dispatch({ type: "SET_USER", userId: user.user_id, email: user.email });
+        try {
+            const userInfo = await api.getUser(user.user_id);
+            const completed = Boolean(userInfo?.onboarding_completed);
+            dispatch({ type: "SET_ONBOARDING_STATUS", completed });
+            goToPage(completed ? "home" : "onboarding");
+        } catch (error) {
+            console.error("사용자 정보를 불러오지 못했습니다:", error);
+            goToPage("home");
+        }
     };
 
-    const handleRegisterSubmit = () => {
-        goToPage("start");
+    const handleRegisterSuccess = () => {
+        goToPage("login");
     };
 
     // 온보딩 플로우 핸들러
@@ -183,7 +212,8 @@ export default function App() {
 
     const handleSettingsMenu = (menu: "portfolio" | "stocks" | "logout") => {
         if (menu === "logout") {
-            goToPage("start");
+            dispatch({ type: "LOGOUT" });
+            return;
         }
     };
 
@@ -221,10 +251,10 @@ export default function App() {
                     />
                 )}
                 {state.currentPage === "login" && (
-                    <Login onBack={() => goBack("start")} onSubmit={handleLoginSubmit} />
+                    <Login onBack={() => goBack("start")} onSuccess={handleLoginSuccess} />
                 )}
                 {state.currentPage === "register" && (
-                    <Register onBack={() => goBack("start")} onSubmit={handleRegisterSubmit} />
+                    <Register onBack={() => goBack("start")} onSuccess={handleRegisterSuccess} />
                 )}
                 {state.currentPage === "onboarding" && (
                     <Onboarding
@@ -272,7 +302,7 @@ export default function App() {
                         initialInvestment={parseInt(state.initialInvestment) || 0}
                         stocks={state.stocks}
                         onAddStock={handleAddStock}
-                        investmentStyle={state.investmentStyle as InvestmentStyle}
+                        investmentStyle={(state.investmentStyle || "공격형") as InvestmentStyle}
                         onOpenSettings={() => goToPage("settings")}
                     />
                 )}
