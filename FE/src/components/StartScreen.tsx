@@ -3,9 +3,10 @@ import LogoIcon from "@/assets/icons/logo.svg?react";
 interface StartScreenProps {
     onStart: () => void;
     onSignUp?: () => void;
+    onLogin?: () => void;
 }
 
-export default function StartScreen({ onStart, onSignUp }: StartScreenProps) {
+export default function StartScreen({ onStart, onSignUp, onLogin }: StartScreenProps) {
     return (
         <div className="bg-white relative size-full min-h-screen flex flex-col items-center px-6 pt-12 pb-[140px]">
             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center w-full max-w-[375px]">
@@ -18,7 +19,7 @@ export default function StartScreen({ onStart, onSignUp }: StartScreenProps) {
                 </p>
                 <p
                     className="font-semibold"
-                    style={{ fontSize: 18, color: "var(--achromatic-500)"}}
+                    style={{ fontSize: 18, color: "var(--achromatic-500)", marginTop: 8 }}
                 >
                     AI 주식 예측 서비스
                 </p>
@@ -26,7 +27,7 @@ export default function StartScreen({ onStart, onSignUp }: StartScreenProps) {
             <div className="absolute bottom-[50px] left-1/2 translate-x-[-50%] w-full max-w-[375px] px-6">
                 <button
                     type="button"
-                    onClick={onStart}
+                    onClick={onLogin ?? onStart}
                     className="relative rounded-[8px] shrink-0 w-full transition-colors bg-[#1FA9A4]"
                 >
                     <div className="flex flex-row items-center justify-center size-full">

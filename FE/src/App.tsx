@@ -1,5 +1,7 @@
 import { useReducer } from "react";
 import StartScreen from "./components/StartScreen";
+import Register from "./components/Register";
+import Login from "./components/Login";
 import Onboarding from "./components/StockName";
 import StockQuantityInput from "./components/StockQuantityInput";
 import StockPriceInput from "./components/StockPriceInput";
@@ -11,6 +13,8 @@ import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentS
 
 type Page =
     | "start"
+    | "login"
+    | "register"
     | "onboarding"
     | "quantity"
     | "price"
@@ -135,6 +139,23 @@ export default function App() {
         goToPage("onboarding");
     };
 
+    const handleGoToRegister = () => {
+        goToPage("register");
+    };
+
+    const handleGoToLogin = () => {
+        goToPage("login");
+    };
+
+    const handleLoginSubmit = async () => {
+        goToPage("home");
+        return true;
+    };
+
+    const handleRegisterSubmit = () => {
+        goToPage("start");
+    };
+
     // 온보딩 플로우 핸들러
     const handleOnboardingStock = (stockName: string) => {
         dispatch({ type: "SET_ONBOARDING_FIELD", field: "stockName", value: stockName });
@@ -158,6 +179,12 @@ export default function App() {
 
     const handleStyleSelection = (style: string) => {
         dispatch({ type: "COMPLETE_ONBOARDING", style: style as InvestmentStyle });
+    };
+
+    const handleSettingsMenu = (menu: "portfolio" | "stocks" | "logout") => {
+        if (menu === "logout") {
+            goToPage("start");
+        }
     };
 
     // 종목 추가 플로우 핸들러
@@ -186,7 +213,19 @@ export default function App() {
     return (
         <div className="bg-white min-h-screen">
             <InvestmentStyleProvider investmentStyle={state.investmentStyle || "공격형"}>
-                {state.currentPage === "start" && <StartScreen onStart={handleStart} />}
+                {state.currentPage === "start" && (
+                    <StartScreen
+                        onStart={handleStart}
+                        onSignUp={handleGoToRegister}
+                        onLogin={handleGoToLogin}
+                    />
+                )}
+                {state.currentPage === "login" && (
+                    <Login onBack={() => goBack("start")} onSubmit={handleLoginSubmit} />
+                )}
+                {state.currentPage === "register" && (
+                    <Register onBack={() => goBack("start")} onSubmit={handleRegisterSubmit} />
+                )}
                 {state.currentPage === "onboarding" && (
                     <Onboarding
                         onSubmit={handleOnboardingStock}
@@ -238,7 +277,7 @@ export default function App() {
                     />
                 )}
                 {state.currentPage === "settings" && (
-                    <Settings onBack={() => goBack("home")} />
+                    <Settings onBack={() => goBack("home")} onSelectMenu={handleSettingsMenu} />
                 )}
                 {state.currentPage === "add-stock" && (
                     <Onboarding
