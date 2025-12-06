@@ -12,6 +12,7 @@ class UserInvestmentUpdate(BaseModel):
 class User(UserBase):
     id: int
     is_active: bool
+    investment_style: Optional[str] = None  # 투자 성향
     onboarding_completed: bool = False  # 온보딩 완료 여부
 
     class Config:
@@ -21,6 +22,13 @@ class HoldingCreate(BaseModel):
     symbol: str
     quantity: int
     avg_price: float
+
+# 온보딩 데이터 (초기투자금 + 보유종목 + 투자성향)
+class OnboardingData(BaseModel):
+    initial_investment: float  # 초기투자금
+    investment_style: str      # 투자 성향 (예: "공격형", "안정형")
+    holdings: List[HoldingCreate] = []  # 초기 보유 종목 리스트
+
 
 # 주식 정보 응답 (수익률 포함)
 class HoldingResponse(BaseModel):
@@ -37,6 +45,7 @@ class HoldingResponse(BaseModel):
 class PortfolioResponse(BaseModel):
     id: int
     user_id: int
+    initial_capital: float # 초기 투자금
     current_capital: float # 예수금 (남은 돈)
     total_asset: float     # 총 자산 (예수금 + 주식 평가액)
     holdings: List[HoldingResponse] = []

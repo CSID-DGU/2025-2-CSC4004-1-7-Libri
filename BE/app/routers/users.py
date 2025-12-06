@@ -40,3 +40,17 @@ def update_investment_style(user_id: int, investment: schemas.UserInvestmentUpda
     if db_user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return db_user
+
+@router.post("/{user_id}/onboarding", response_model=schemas.User)
+def complete_onboarding(user_id: int, onboarding_data: schemas.OnboardingData, db: Session = Depends(database.get_db)):
+    """
+    온보딩 완료 API
+    - 초기투자금으로 포트폴리오 생성
+    - 초기 보유 종목 추가
+    - 투자 성향 설정
+    - 온보딩 완료 표시
+    """
+    db_user = crud.complete_onboarding(db, user_id=user_id, onboarding_data=onboarding_data)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return db_user

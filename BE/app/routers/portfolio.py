@@ -52,6 +52,7 @@ def get_my_portfolio(user_id: int, db: Session = Depends(database.get_db)):
     return {
         "id": portfolio.id,
         "user_id": portfolio.user_id,
+        "initial_capital": portfolio.initial_capital,  # 초기 투자금 추가
         "current_capital": portfolio.current_capital,
         "total_asset": portfolio.current_capital + total_stock_value,
         "holdings": response_holdings
