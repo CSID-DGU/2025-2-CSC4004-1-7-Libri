@@ -24,7 +24,24 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    let errorMessage = `API Error: ${response.status} ${response.statusText}`;
+    let errorBody: any = null;
+    try {
+      errorBody = await response.json();
+      if (typeof errorBody === "string") {
+        errorMessage = errorBody;
+      } else if (errorBody?.detail) {
+        errorMessage = Array.isArray(errorBody.detail)
+          ? errorBody.detail.map((d: any) => d.msg || d.detail || "").join(", ")
+          : errorBody.detail;
+      }
+    } catch {
+      // ignore JSON parse errors and keep default message
+    }
+    const error = new Error(errorMessage);
+    (error as any).status = response.status;
+    (error as any).body = errorBody;
+    throw error;
   }
 
   return response.json();
