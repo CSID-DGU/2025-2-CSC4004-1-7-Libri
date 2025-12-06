@@ -1,4 +1,5 @@
 import { useReducer } from "react";
+import StartScreen from "./components/StartScreen";
 import Onboarding from "./components/StockName";
 import StockQuantityInput from "./components/StockQuantityInput";
 import StockPriceInput from "./components/StockPriceInput";
@@ -9,6 +10,7 @@ import Settings from "./components/Settings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 
 type Page =
+    | "start"
     | "onboarding"
     | "quantity"
     | "price"
@@ -54,7 +56,7 @@ type Action =
     | { type: "RESET_ADD_STOCK_FORM" };
 
 const initialState: State = {
-    currentPage: "onboarding",
+    currentPage: "start",
     initialInvestment: "",
     investmentStyle: "",
     stocks: [],
@@ -129,6 +131,10 @@ export default function App() {
     // 페이지 네비게이션 핸들러
     const goToPage = (page: Page) => dispatch({ type: "SET_PAGE", page });
 
+    const handleStart = () => {
+        goToPage("onboarding");
+    };
+
     // 온보딩 플로우 핸들러
     const handleOnboardingStock = (stockName: string) => {
         dispatch({ type: "SET_ONBOARDING_FIELD", field: "stockName", value: stockName });
@@ -180,6 +186,7 @@ export default function App() {
     return (
         <div className="bg-white min-h-screen">
             <InvestmentStyleProvider investmentStyle={state.investmentStyle || "공격형"}>
+                {state.currentPage === "start" && <StartScreen onStart={handleStart} />}
                 {state.currentPage === "onboarding" && (
                     <Onboarding
                         onSubmit={handleOnboardingStock}
