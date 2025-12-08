@@ -7,7 +7,7 @@ import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";
 import { api } from "@/api/client";
-import { mapSymbolToDisplayName } from "@/lib/stocks";
+import { mapSymbolToDisplayName, resolveStockSymbol } from "@/lib/stocks";
 import {
     generateMockPriceSeries,
     generateRandomActions,
@@ -417,18 +417,12 @@ export default function Home({
             try {
                 setLoading(true);
                 
-                // 종목 코드 매핑
-                const symbolMap: Record<string, string> = {
-                    "삼성전자": "005930.KS",
-                    "SK하이닉스": "000660.KS",
-                };
-
                 const performanceMap: StockPerformanceMap = {};
 
                 // 각 종목에 대해 현재가와 수익률 계산
                 for (const stock of effectiveStocks.length > 0 ? effectiveStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }]) {
                     try {
-                        const symbol = symbolMap[stock.name] || "005930.KS";
+                        const symbol = resolveStockSymbol(stock.name) || "005930.KS";
                         
                         // 백엔드에서 최근 주가 데이터 가져오기
                         const historyData = await api.getStockHistory(symbol, 2);

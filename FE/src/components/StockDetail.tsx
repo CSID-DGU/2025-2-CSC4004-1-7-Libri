@@ -10,6 +10,7 @@ import IndicatorModal from "./IndicatorModal";
 import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsByStyle";
 import { type InvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
+import { resolveStockSymbol } from "@/lib/stocks";
 import {
     DayTrading,
     type SimulatedTrade,
@@ -248,18 +249,35 @@ function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
 
         loadChartData();
 
-        const resizeObserver = new ResizeObserver((entries) => {
-            const entry = entries[0];
-            if (!entry || !chartInstanceRef.current) return;
-            const nextWidth = Math.floor(entry.contentRect.width);
-            if (nextWidth > 0) {
-                chartInstanceRef.current.applyOptions({ width: nextWidth });
-            }
-        });
+        let cleanupResize: (() => void) | null = null;
 
-        resizeObserver.observe(container);
+        if (typeof ResizeObserver !== "undefined") {
+            const resizeObserver = new ResizeObserver((entries) => {
+                const entry = entries[0];
+                if (!entry || !chartInstanceRef.current) return;
+                const nextWidth = Math.floor(entry.contentRect.width);
+                if (nextWidth > 0) {
+                    chartInstanceRef.current.applyOptions({ width: nextWidth });
+                }
+            });
+
+            resizeObserver.observe(container);
+            cleanupResize = () => resizeObserver.disconnect();
+        } else {
+            const handleWindowResize = () => {
+                if (!chartInstanceRef.current || !container) return;
+                const nextWidth = Math.floor(container.clientWidth);
+                if (nextWidth > 0) {
+                    chartInstanceRef.current.applyOptions({ width: nextWidth });
+                }
+            };
+
+            window.addEventListener("resize", handleWindowResize);
+            cleanupResize = () => window.removeEventListener("resize", handleWindowResize);
+        }
+
         return () => {
-            resizeObserver.disconnect();
+            cleanupResize?.();
             chart.remove();
             chartInstanceRef.current = null;
         };
@@ -481,19 +499,25 @@ function Top3AnalysisSection({
     
     // 백엔드에서 받은 XAI 데이터를 IndicatorInfo 형식으로 변환
     const indicators: IndicatorInfo[] = xaiFeatures.length > 0 
-        ? xaiFeatures.slice(0, 3).map((feature, index) => ({
-            id: `xai-${index}`,
-            title: feature.base,
-            value: Math.abs(feature.shap).toFixed(4),
-            status: (feature.direction === "지지" ? "positive" : "negative") as "positive" | "negative" | "neutral",
-            shortDescription: `${feature.description} - AI가 이 지표를 ${feature.direction} 요인으로 판단했습니다. (영향도: ${Math.abs(feature.shap).toFixed(4)})`,
-            detailedDescription: feature.description,
-            interpretationPoints: [
-                `이 지표는 AI 모델의 결정에 ${feature.direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
-                `SHAP 값: ${feature.shap.toFixed(6)}`,
-                `${feature.direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
-            ],
-        }))
+        ? xaiFeatures.slice(0, 3).map((feature, index) => {
+            const shapValue = typeof feature.shap === "number" ? feature.shap : 0;
+            const impact = Math.abs(shapValue).toFixed(4);
+            const shapText = shapValue.toFixed(6);
+
+            return {
+                id: `xai-${index}`,
+                title: feature.base,
+                value: impact,
+                status: (feature.direction === "지지" ? "positive" : "negative") as "positive" | "negative" | "neutral",
+                shortDescription: `${feature.description} - AI가 이 지표를 ${feature.direction} 요인으로 판단했습니다. (영향도: ${impact})`,
+                detailedDescription: feature.description,
+                interpretationPoints: [
+                    `이 지표는 AI 모델의 결정에 ${feature.direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
+                    `SHAP 값: ${shapText}`,
+                    `${feature.direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
+                ],
+            };
+        })
         : getIndicatorsByStyle(investmentStyle).top3; // 폴백: 기존 정적 데이터
     const handleGuideClick = () => {
         onIndicatorClick({
@@ -764,11 +788,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 setError(null);
 
                 // 종목 코드 변환 (삼성전자 -> 005930)
-                const symbolMap: Record<string, string> = {
-                    "삼성전자": "005930.KS",
-                    "SK하이닉스": "000660.KS",
-                };
-                const symbol = symbolMap[stockName] || "005930.KS";
+                const symbol = resolveStockSymbol(stockName) || "005930.KS";
 
                 // 투자 성향 변환 (공격형 -> aggressive, 안정형 -> conservative)
                 const styleMap: Record<string, "aggressive" | "conservative"> = {
@@ -793,7 +813,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                     aiExplanation:
                         result.gpt_explanation || result.explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
                     indicators: result.technical_indicators || {},
-                    xaiFeatures: result.xai_features || [],
+                xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
                 });
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
@@ -820,11 +840,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
             try {
 
                 // 종목 코드 변환
-                const symbolMap: Record<string, string> = {
-                    "삼성전자": "005930.KS",
-                    "SK하이닉스": "000660.KS",
-                };
-                const symbol = symbolMap[stockName] || "005930.KS";
+                const symbol = resolveStockSymbol(stockName) || "005930.KS";
 
                 // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
                 const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
