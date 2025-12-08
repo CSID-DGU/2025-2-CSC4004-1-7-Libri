@@ -62,8 +62,6 @@ class AIPredictResponse(BaseModel):
     date: str
     action: str           # "BUY" / "SELL" / "HOLD"
     action_ko: str        # "매수" / "매도" / "관망"
-    confidence: float     # 0.0 ~ 1.0
-    win_rate: float       # 0.0 ~ 1.0
     investment_style: str
     xai_features: List[dict] = []  # Top 3 중요 지표 (XAI)
     explanation: str
@@ -150,8 +148,6 @@ def predict(req: AIPredictRequest):
           "date": "2025-12-04",
           "action": "BUY",
           "action_ko": "매수",
-          "confidence": 0.78,
-          "win_rate": 0.62,
           "investment_style": "aggressive",
           "indicators": [...],
           "xai_features": [...],
@@ -249,8 +245,6 @@ def legacy_predict(
     return {
         # 프론트 호환용 필드
         "signal": signal,
-        "confidence": result.get("confidence", 0.0),
-        "win_rate": result.get("win_rate", 0.0),
         "gpt_explanation": result.get("explanation", ""),
 
         # 참고용: 원본 응답도 함께 포함 (디버깅/확장용)

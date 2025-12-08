@@ -626,30 +626,10 @@ class AIService:
 
 
 
-    def _compute_win_rate(self, signals: List[Dict[str, Any]]) -> float:
-        """
-        get_historical_signals()에서 나온 결과 리스트를 기반으로
-        전략 수익률(strategy_return) 기준 승률 계산.
-        """
-        if not signals:
-            return 0.0
-
-        trades = [
-            r
-            for r in signals
-            if abs(r.get("strategy_return", 0.0)) > 1e-8
-        ]
-        if not trades:
-            return 0.0
-
-        wins = [r for r in trades if r["strategy_return"] > 0]
-        return len(wins) / len(trades)
-
     def _build_explanation(
         self,
         model_name: str,
         action_id: int,
-        win_rate: float,
         investment_style: str,
     ) -> str:
         """
@@ -668,8 +648,7 @@ class AIService:
         # 규칙 기반 설명에는 [RULE] 태그
         return (
             f"[RULE] {model_label} 모델이 최근 학습된 패턴을 바탕으로 "
-            f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다. "
-            f"최근 백테스트 기준 전략 승률은 대략 {win_rate * 100:.1f}% 수준입니다."
+            f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다."
         )
 
     def predict_today(
@@ -699,11 +678,9 @@ class AIService:
                     raise RuntimeError("A2C 오늘 예측에 실패했습니다.")
 
                 hist_signals = self.a2c.get_historical_signals(start_str)
-                win_rate = self._compute_win_rate(hist_signals)
 
                 action_id = int(today_pred["action"])
                 probs = today_pred.get("probs", [])
-                confidence = float(max(probs)) if probs else 0.0
                 date_str = today_pred.get("date")
 
             else:  # mode == "marl"
@@ -712,10 +689,8 @@ class AIService:
                     raise RuntimeError("MARL 오늘 예측에 실패했습니다.")
 
                 hist_signals = self.marl.get_historical_signals(start_str)
-                win_rate = self._compute_win_rate(hist_signals)
 
                 action_id = int(today_pred["action"])
-                confidence = 0.0  # QMIX에서 확률을 직접 쓰지 않으므로 0.0으로 둠
                 date_str = today_pred.get("date")
 
             action_en = ACTION_ID_TO_EN.get(action_id, "HOLD")
@@ -723,7 +698,6 @@ class AIService:
             explanation = self._build_explanation(
                 model_name=mode,
                 action_id=action_id,
-                win_rate=win_rate,
                 investment_style=investment_style,
             )
 
@@ -775,8 +749,6 @@ class AIService:
                 "date": date_str,
                 "action": action_en,          # "BUY" / "SELL" / "HOLD"
                 "action_ko": action_ko,       # "매수" / "매도" / "관망"
-                "confidence": confidence,     # 0.0 ~ 1.0
-                "win_rate": win_rate,         # 0.0 ~ 1.0
                 "investment_style": investment_style,
                 "xai_features": xai_features, # Top-k XAI 지표
                 "explanation": explanation,   # ★ GPT 결과(or fallback)
@@ -790,8 +762,6 @@ class AIService:
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "action": "HOLD",
                 "action_ko": "관망",
-                "confidence": 0.0,
-                "win_rate": 0.0,
                 "investment_style": investment_style,
                 "explanation": (
                     "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다. "
