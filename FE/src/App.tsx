@@ -558,6 +558,7 @@ export default function App() {
                         onSubmit={handleAddStockPrice}
                         initialValue={state.addStockForm.price}
                         title="종목 추가"
+                        submitLabel="완료"
                     />
                 )}
             </InvestmentStyleProvider>
