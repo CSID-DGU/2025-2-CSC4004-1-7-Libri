@@ -11,6 +11,10 @@ import Home from "./components/Home";
 import Settings from "./components/Settings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
+import {
+    resolveStockSymbol,
+    mapSymbolToDisplayName,
+} from "./lib/stocks";
 
 type Page =
     | "start"
@@ -60,6 +64,7 @@ type Action =
     | { type: "SET_INITIAL_INVESTMENT"; value: string }
     | { type: "SET_INVESTMENT_STYLE"; style: InvestmentStyle | "" }
     | { type: "COMPLETE_ONBOARDING"; style: InvestmentStyle }
+    | { type: "SET_STOCKS"; stocks: Stock[] }
     | { type: "ADD_STOCK" }
     | { type: "RESET_ADD_STOCK_FORM" }
     | { type: "SET_USER"; userId: number; email: string }
@@ -89,6 +94,57 @@ function createStock(form: FormData, logoUrl?: string): Stock {
         totalValue: quantity * price,
         logoUrl,
     };
+}
+
+type BackendInvestmentStyle = "aggressive" | "conservative";
+
+const BACKEND_TO_DISPLAY_STYLE: Record<BackendInvestmentStyle, InvestmentStyle> = {
+    aggressive: "공격형",
+    conservative: "안정형",
+};
+
+const DISPLAY_TO_BACKEND_STYLE: Record<InvestmentStyle, BackendInvestmentStyle> = {
+    공격형: "aggressive",
+    안정형: "conservative",
+};
+
+function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
+    if (!style) return "";
+    return BACKEND_TO_DISPLAY_STYLE[style as BackendInvestmentStyle] ?? "";
+}
+
+function mapDisplayStyleToBackend(style: string): BackendInvestmentStyle | null {
+    return DISPLAY_TO_BACKEND_STYLE[style as InvestmentStyle] ?? null;
+}
+
+function parsePositiveInteger(value: string): number | null {
+    const numericValue = parseInt(value, 10);
+    if (Number.isNaN(numericValue) || numericValue <= 0) {
+        return null;
+    }
+    return numericValue;
+}
+
+
+function mapHoldingsToStocks(holdings: any[]): Stock[] {
+    return (holdings || []).map((holding: any) => {
+        const rawQuantity = Number(holding?.quantity ?? 0);
+        const rawAvgPrice = Number(holding?.avg_price ?? 0);
+        const rawCurrentPrice = Number(holding?.current_price ?? holding?.avg_price ?? 0);
+
+        const quantity = Number.isNaN(rawQuantity) ? 0 : rawQuantity;
+        const averagePrice = Number.isNaN(rawAvgPrice) ? 0 : rawAvgPrice;
+        const currentPrice = Number.isNaN(rawCurrentPrice) ? averagePrice : rawCurrentPrice;
+        const displayName = mapSymbolToDisplayName(holding?.symbol) || holding?.symbol || "알 수 없음";
+
+        return {
+            name: displayName,
+            quantity,
+            averagePrice,
+            totalValue: quantity * currentPrice,
+            logoUrl: undefined,
+        };
+    });
 }
 
 function reducer(state: State, action: Action): State {
@@ -122,6 +178,9 @@ function reducer(state: State, action: Action): State {
                 currentPage: "home",
                 onboardingCompleted: true,
             };
+
+        case "SET_STOCKS":
+            return { ...state, stocks: action.stocks };
 
         case "ADD_STOCK":
             return {
@@ -165,6 +224,86 @@ const STORAGE_KEY = "libri_onboarding_state";
 
 export default function App() {
     const [state, dispatch] = useReducer(reducer, initialState);
+
+    const hydrateStateFromBackend = async (userId: number, existingUserInfo?: any) => {
+        let userInfo = existingUserInfo;
+        if (!userInfo) {
+            try {
+                userInfo = await api.getUser(userId);
+            } catch (error) {
+                console.error("사용자 정보를 불러오지 못했습니다:", error);
+                return;
+            }
+        }
+
+        const mappedStyle = mapBackendStyleToDisplay(userInfo?.investment_style);
+        if (mappedStyle) {
+            dispatch({ type: "SET_INVESTMENT_STYLE", style: mappedStyle });
+        }
+
+        if (typeof userInfo?.onboarding_completed === "boolean") {
+            dispatch({ type: "SET_ONBOARDING_STATUS", completed: Boolean(userInfo.onboarding_completed) });
+        }
+
+        try {
+            const portfolio = await api.getPortfolio(userId);
+            if (portfolio) {
+                const mappedStocks = mapHoldingsToStocks(portfolio.holdings ?? []);
+                dispatch({ type: "SET_STOCKS", stocks: mappedStocks });
+
+                if (mappedStocks.length > 0) {
+                    const firstStock = mappedStocks[0];
+                    dispatch({ type: "SET_ONBOARDING_FIELD", field: "stockName", value: firstStock.name });
+                    dispatch({
+                        type: "SET_ONBOARDING_FIELD",
+                        field: "quantity",
+                        value: firstStock.quantity.toString(),
+                    });
+                    dispatch({
+                        type: "SET_ONBOARDING_FIELD",
+                        field: "price",
+                        value: firstStock.averagePrice.toString(),
+                    });
+                }
+
+                const initialValue =
+                    typeof portfolio.total_asset === "number"
+                        ? portfolio.total_asset
+                        : portfolio.current_capital;
+
+                if (typeof initialValue === "number" && !Number.isNaN(initialValue)) {
+                    dispatch({
+                        type: "SET_INITIAL_INVESTMENT",
+                        value: Math.round(initialValue).toString(),
+                    });
+                }
+            }
+        } catch (error) {
+            console.error("포트폴리오 정보를 불러오지 못했습니다:", error);
+        }
+    };
+
+    const persistHoldingFromForm = async (userId: number, form: FormData) => {
+        const symbol = resolveStockSymbol(form.stockName);
+        const quantity = parsePositiveInteger(form.quantity);
+        const avgPrice = parsePositiveInteger(form.price);
+
+        if (!symbol || quantity === null || avgPrice === null) {
+            return false;
+        }
+
+        try {
+            await api.addHolding(userId, {
+                symbol,
+                quantity,
+                avg_price: avgPrice,
+            });
+            return true;
+        } catch (error) {
+            console.error("보유 주식 정보를 저장하지 못했습니다:", error);
+            return false;
+        }
+    };
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -223,14 +362,24 @@ export default function App() {
             const userInfo = await api.getUser(user.user_id);
             const completed = Boolean(userInfo?.onboarding_completed);
             dispatch({ type: "SET_ONBOARDING_STATUS", completed });
+
+            if (!completed) {
+                goToPage("onboarding");
+                return;
+            }
+
+            await hydrateStateFromBackend(user.user_id, userInfo);
+            goToPage("home");
         } catch (error) {
             console.error("사용자 정보를 불러오지 못했습니다:", error);
-        } finally {
-            goToPage("home");
         }
     };
 
-    const handleRegisterSuccess = () => {
+    const handleRegisterSuccess = (newUser?: { id: number; email: string; onboarding_completed?: boolean }) => {
+        if (newUser?.id) {
+            dispatch({ type: "SET_USER", userId: newUser.id, email: newUser.email });
+            dispatch({ type: "SET_ONBOARDING_STATUS", completed: Boolean(newUser.onboarding_completed) });
+        }
         goToPage("onboarding");
     };
 
@@ -255,8 +404,35 @@ export default function App() {
         goToPage("style");
     };
 
-    const handleStyleSelection = (style: string) => {
-        dispatch({ type: "COMPLETE_ONBOARDING", style: style as InvestmentStyle });
+    const completeLocalOnboarding = (style: InvestmentStyle) => {
+        dispatch({ type: "COMPLETE_ONBOARDING", style });
+    };
+
+    const handleStyleSelection = async (style: string) => {
+        const selectedStyle = style as InvestmentStyle;
+        dispatch({ type: "SET_INVESTMENT_STYLE", style: selectedStyle });
+
+        if (!state.userId) {
+            completeLocalOnboarding(selectedStyle);
+            return;
+        }
+
+        try {
+            await persistHoldingFromForm(state.userId, state.onboardingForm);
+
+            const backendStyle = mapDisplayStyleToBackend(style);
+            if (!backendStyle) {
+                completeLocalOnboarding(selectedStyle);
+                return;
+            }
+
+            await api.updateInvestmentStyle(state.userId, backendStyle);
+            await hydrateStateFromBackend(state.userId);
+            goToPage("home");
+        } catch (error) {
+            console.error("온보딩 완료 처리 중 오류 발생:", error);
+            completeLocalOnboarding(selectedStyle);
+        }
     };
 
     const handleSettingsMenu = (menu: "portfolio" | "stocks" | "logout") => {
@@ -282,8 +458,19 @@ export default function App() {
         goToPage("add-price");
     };
 
-    const handleAddStockPrice = (price: string) => {
+    const handleAddStockPrice = async (price: string) => {
         dispatch({ type: "SET_ADD_STOCK_FIELD", field: "price", value: price });
+
+        const pendingForm: FormData = {
+            ...state.addStockForm,
+            price,
+        };
+
+        if (state.userId) {
+            await persistHoldingFromForm(state.userId, pendingForm);
+            await hydrateStateFromBackend(state.userId);
+        }
+
         dispatch({ type: "ADD_STOCK" });
     };
 
@@ -382,6 +569,7 @@ export default function App() {
                         onSubmit={handleAddStockPrice}
                         initialValue={state.addStockForm.price}
                         title="종목 추가"
+                        submitLabel="완료"
                     />
                 )}
             </InvestmentStyleProvider>

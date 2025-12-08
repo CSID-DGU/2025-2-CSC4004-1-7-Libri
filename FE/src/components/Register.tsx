@@ -9,7 +9,7 @@ import { api } from "@/api/client";
 
 interface RegisterProps {
     onBack: () => void;
-    onSuccess?: () => void;
+    onSuccess?: (user: { id: number; email: string; onboarding_completed?: boolean }) => void;
 }
 
 export default function Register({ onBack, onSuccess }: RegisterProps) {
@@ -28,8 +28,8 @@ export default function Register({ onBack, onSuccess }: RegisterProps) {
         setError("");
         setSubmitting(true);
         try {
-            await api.signup(email.trim(), password.trim());
-            onSuccess?.();
+            const createdUser = await api.signup(email.trim(), password.trim());
+            onSuccess?.(createdUser);
         } catch (err) {
             const detailFromBody = (err as any)?.body?.detail;
             const fallbackMessage = err instanceof Error ? err.message : "";

@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'https://libri-backend.onrender.com';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 interface RequestOptions {

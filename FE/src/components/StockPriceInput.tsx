@@ -23,6 +23,7 @@ interface StockPriceInputProps {
     onSubmit: (price: string) => void;
     initialValue?: string;
     title?: string;
+    submitLabel?: string;
 }
 
 export default function StockPriceInput({
@@ -30,6 +31,7 @@ export default function StockPriceInput({
     onSubmit,
     initialValue = "",
     title = "시작하기",
+    submitLabel = "다음",
 }: StockPriceInputProps) {
     const [price, setPrice] = useState(initialValue);
 
@@ -120,7 +122,7 @@ export default function StockPriceInput({
                     <div className="flex flex-row items-center justify-center size-full">
                         <div className="box-border content-stretch flex gap-[2px] items-center justify-center px-[8px] py-[12px] relative w-full">
                             <div className="flex flex-col font-['Pretendard:Bold',sans-serif] justify-center leading-[0] not-italic relative shrink-0 text-[16px] text-center text-nowrap text-white tracking-[0.16px]">
-                                <p className="leading-[1.5] whitespace-pre">다음</p>
+                                <p className="leading-[1.5] whitespace-pre">{submitLabel}</p>
                             </div>
                         </div>
                     </div>
