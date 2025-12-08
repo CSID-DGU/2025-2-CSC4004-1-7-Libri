@@ -23,6 +23,7 @@ def update_user_investment_style(db: Session, user_id: int, investment_style: st
     db_user = get_user(db, user_id)
     if db_user:
         db_user.investment_style = investment_style
+        db_user.onboarding_completed = True  # 투자 성향 설정 시 온보딩 완료로 표시
         db.commit()
         db.refresh(db_user)
     return db_user

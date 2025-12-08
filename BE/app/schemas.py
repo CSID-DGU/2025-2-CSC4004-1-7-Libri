@@ -12,6 +12,7 @@ class UserInvestmentUpdate(BaseModel):
 class User(UserBase):
     id: int
     is_active: bool
+    onboarding_completed: bool = False  # 온보딩 완료 여부
 
     class Config:
         orm_mode = True
