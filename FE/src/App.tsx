@@ -104,6 +104,11 @@ const DISPLAY_TO_BACKEND_STYLE: Record<InvestmentStyle, BackendInvestmentStyle> 
     안정형: "conservative",
 };
 
+const STOCK_NAME_TO_SYMBOL: Record<string, string> = {
+    "삼성전자": "005930.KS",
+    "SK하이닉스": "000660.KS",
+};
+
 function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
     if (!style) return "";
     return BACKEND_TO_DISPLAY_STYLE[style as BackendInvestmentStyle] ?? "";
@@ -111,6 +116,30 @@ function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
 
 function mapDisplayStyleToBackend(style: string): BackendInvestmentStyle | null {
     return DISPLAY_TO_BACKEND_STYLE[style as InvestmentStyle] ?? null;
+}
+
+function resolveStockSymbol(rawName: string): string {
+    const trimmed = rawName?.trim();
+    if (!trimmed) return "";
+
+    const mappedSymbol = STOCK_NAME_TO_SYMBOL[trimmed];
+    if (mappedSymbol) {
+        return mappedSymbol;
+    }
+
+    if (/^\d{6}$/.test(trimmed)) {
+        return `${trimmed}.KS`;
+    }
+
+    return trimmed.toUpperCase();
+}
+
+function parsePositiveInteger(value: string): number | null {
+    const numericValue = parseInt(value, 10);
+    if (Number.isNaN(numericValue) || numericValue <= 0) {
+        return null;
+    }
+    return numericValue;
 }
 
 function mapHoldingsToStocks(holdings: any[]): Stock[] {
@@ -269,6 +298,28 @@ export default function App() {
         }
     };
 
+    const persistOnboardingHolding = async (userId: number) => {
+        const symbol = resolveStockSymbol(state.onboardingForm.stockName);
+        const quantity = parsePositiveInteger(state.onboardingForm.quantity);
+        const avgPrice = parsePositiveInteger(state.onboardingForm.price);
+
+        if (!symbol || quantity === null || avgPrice === null) {
+            return false;
+        }
+
+        try {
+            await api.addHolding(userId, {
+                symbol,
+                quantity,
+                avg_price: avgPrice,
+            });
+            return true;
+        } catch (error) {
+            console.error("온보딩 보유 주식 정보를 저장하지 못했습니다:", error);
+            return false;
+        }
+    };
+
     useEffect(() => {
         if (typeof window === "undefined") return;
         try {
@@ -381,13 +432,15 @@ export default function App() {
             return;
         }
 
-        const backendStyle = mapDisplayStyleToBackend(style);
-        if (!backendStyle) {
-            completeLocalOnboarding(selectedStyle);
-            return;
-        }
-
         try {
+            await persistOnboardingHolding(state.userId);
+
+            const backendStyle = mapDisplayStyleToBackend(style);
+            if (!backendStyle) {
+                completeLocalOnboarding(selectedStyle);
+                return;
+            }
+
             await api.updateInvestmentStyle(state.userId, backendStyle);
             await hydrateStateFromBackend(state.userId);
             goToPage("home");
