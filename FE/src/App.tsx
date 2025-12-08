@@ -283,10 +283,10 @@ export default function App() {
         }
     };
 
-    const persistOnboardingHolding = async (userId: number) => {
-        const symbol = resolveStockSymbol(state.onboardingForm.stockName);
-        const quantity = parsePositiveInteger(state.onboardingForm.quantity);
-        const avgPrice = parsePositiveInteger(state.onboardingForm.price);
+    const persistHoldingFromForm = async (userId: number, form: FormData) => {
+        const symbol = resolveStockSymbol(form.stockName);
+        const quantity = parsePositiveInteger(form.quantity);
+        const avgPrice = parsePositiveInteger(form.price);
 
         if (!symbol || quantity === null || avgPrice === null) {
             return false;
@@ -300,7 +300,7 @@ export default function App() {
             });
             return true;
         } catch (error) {
-            console.error("온보딩 보유 주식 정보를 저장하지 못했습니다:", error);
+            console.error("보유 주식 정보를 저장하지 못했습니다:", error);
             return false;
         }
     };
@@ -418,7 +418,7 @@ export default function App() {
         }
 
         try {
-            await persistOnboardingHolding(state.userId);
+            await persistHoldingFromForm(state.userId, state.onboardingForm);
 
             const backendStyle = mapDisplayStyleToBackend(style);
             if (!backendStyle) {
@@ -458,8 +458,19 @@ export default function App() {
         goToPage("add-price");
     };
 
-    const handleAddStockPrice = (price: string) => {
+    const handleAddStockPrice = async (price: string) => {
         dispatch({ type: "SET_ADD_STOCK_FIELD", field: "price", value: price });
+
+        const pendingForm: FormData = {
+            ...state.addStockForm,
+            price,
+        };
+
+        if (state.userId) {
+            await persistHoldingFromForm(state.userId, pendingForm);
+            await hydrateStateFromBackend(state.userId);
+        }
+
         dispatch({ type: "ADD_STOCK" });
     };
 
