@@ -28,6 +28,75 @@ def update_user_investment_style(db: Session, user_id: int, investment_style: st
         db.refresh(db_user)
     return db_user
 
+# 온보딩 완료 처리 (초기투자금 + 보유종목 + 투자성향)
+def complete_onboarding(db: Session, user_id: int, onboarding_data: schemas.OnboardingData):
+    """
+    온보딩 시 입력받은 모든 데이터를 저장:
+    1. 포트폴리오 생성 (초기투자금 설정)
+    2. 초기 보유 종목 추가
+    3. 투자 성향 설정
+    4. 온보딩 완료 표시
+    """
+    # 1. 유저 정보 업데이트
+    db_user = get_user(db, user_id)
+    if not db_user:
+        return None
+    
+    db_user.investment_style = onboarding_data.investment_style
+    db_user.onboarding_completed = True
+    
+    # 2. 포트폴리오 생성 (초기투자금 설정)
+    existing_portfolio = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()
+    if not existing_portfolio:
+        portfolio = models.Portfolio(
+            user_id=user_id,
+            portfolio_id=f"user_{user_id}_default",
+            initial_capital=onboarding_data.initial_investment,
+            current_capital=onboarding_data.initial_investment
+        )
+        db.add(portfolio)
+        db.flush()  # ID 생성을 위해 flush
+    else:
+        portfolio = existing_portfolio
+        portfolio.initial_capital = onboarding_data.initial_investment
+        portfolio.current_capital = onboarding_data.initial_investment
+    
+    # 3. 초기 보유 종목 추가
+    for holding_data in onboarding_data.holdings:
+        cost = holding_data.quantity * holding_data.avg_price
+        
+        # 기존 보유 종목이 있는지 확인
+        existing_holding = db.query(models.Holding).filter(
+            models.Holding.portfolio_id == portfolio.id,
+            models.Holding.symbol == holding_data.symbol
+        ).first()
+        
+        if existing_holding:
+            # 이미 있으면 수량 추가 (평단가 재계산)
+            total_quantity = existing_holding.quantity + holding_data.quantity
+            total_cost = (existing_holding.quantity * existing_holding.avg_price) + cost
+            existing_holding.avg_price = total_cost / total_quantity
+            existing_holding.quantity = total_quantity
+        else:
+            # 새로운 종목 추가
+            new_holding = models.Holding(
+                portfolio_id=portfolio.id,
+                symbol=holding_data.symbol,
+                quantity=holding_data.quantity,
+                avg_price=holding_data.avg_price
+            )
+            db.add(new_holding)
+        
+        # 예수금 차감 (보유 종목 구매 비용)
+        portfolio.current_capital -= cost
+    
+    portfolio.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+
 # 포트폴리오 가져오기 (없으면 자동 생성)
 def get_portfolio_by_user(db: Session, user_id: int):
     portfolio = db.query(models.Portfolio).filter(models.Portfolio.user_id == user_id).first()
