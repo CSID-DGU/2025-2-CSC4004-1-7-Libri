@@ -65,7 +65,6 @@ class AIPredictResponse(BaseModel):
     confidence: float     # 0.0 ~ 1.0
     win_rate: float       # 0.0 ~ 1.0
     investment_style: str
-    indicators: List[str] = []
     xai_features: List[dict] = []  # Top 3 중요 지표 (XAI)
     explanation: str
 
@@ -243,7 +242,6 @@ def legacy_predict(
     # 프론트 쪽 StockDetail.tsx에서는 다음 필드를 기대:
     # - result.signal
     # - result.gpt_explanation
-    # - result.technical_indicators
     # 그래서 여기서 이름을 맞춰서 내려준다.
     action_en = result.get("action", "HOLD")  # "BUY"/"SELL"/"HOLD"
     signal = action_en.lower()                # "buy"/"sell"/"hold" → translateSignal()과 연동
@@ -254,7 +252,6 @@ def legacy_predict(
         "confidence": result.get("confidence", 0.0),
         "win_rate": result.get("win_rate", 0.0),
         "gpt_explanation": result.get("explanation", ""),
-        "technical_indicators": result.get("indicators", []),
 
         # 참고용: 원본 응답도 함께 포함 (디버깅/확장용)
         "symbol": result.get("symbol", symbol),

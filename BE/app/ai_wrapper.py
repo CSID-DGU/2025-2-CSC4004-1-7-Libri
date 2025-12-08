@@ -623,25 +623,8 @@ class AIService:
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
-        # FEATURES 기반 기본 인디케이터 목록 (A2C 데이터 유틸에서 가져옴)
-        self._default_indicators: List[str] = self._load_default_indicators()
 
-    def _load_default_indicators(self) -> List[str]:
-        """
-        AI/a2c_11.29/data_utils.py 에 정의된 FEATURES 리스트를
-        한 번 읽어와서 기본 indicators로 사용한다.
-        """
-        try:
-            # A2CWrapper에서 이미 A2C_DIR을 sys.path에 추가해두었기 때문에
-            # 여기서 바로 data_utils import 가능
-            import data_utils  # type: ignore
-            feats = getattr(data_utils, "FEATURES", None)
-            if not feats:
-                return []
-            return list(feats)
-        except Exception as e:
-            print(f"[AIService] Warning: failed to load default indicators from FEATURES: {e}")
-            return []
+
 
     def _compute_win_rate(self, signals: List[Dict[str, Any]]) -> float:
         """
@@ -746,16 +729,10 @@ class AIService:
 
             xai_features = today_pred.get("xai_features", [])
 
-            # ▶ 여기서 indicators를 FEATURES 기반 리스트로 채워줌
-            indicators: List[str] = self._default_indicators
-
             # -----------------------------
             # OpenAI GPT 기반 상세 설명 시도
             # -----------------------------
             try:
-                # 기술 지표 값 딕셔너리 (현재는 이름 위주이므로 0.0으로 채움)
-                technical_indicators = {name: 0.0 for name in indicators}
-
                 # XAI에서 넘어온 top features를 feature_importance 형태로 변환
                 feature_importance: Dict[str, float] = {}
                 for i, feat in enumerate(xai_features):
@@ -780,7 +757,7 @@ class AIService:
                 # GPT 서비스 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
-                    technical_indicators=technical_indicators,
+                    technical_indicators={}, # 이 부분에 XAI의 TOP3 지표를 넣으면 됨
                     feature_importance=feature_importance,
                 )
 
@@ -801,7 +778,6 @@ class AIService:
                 "confidence": confidence,     # 0.0 ~ 1.0
                 "win_rate": win_rate,         # 0.0 ~ 1.0
                 "investment_style": investment_style,
-                "indicators": indicators,     # FEATURES 기반 지표 목록
                 "xai_features": xai_features, # Top-k XAI 지표
                 "explanation": explanation,   # ★ GPT 결과(or fallback)
             }
@@ -817,7 +793,6 @@ class AIService:
                 "confidence": 0.0,
                 "win_rate": 0.0,
                 "investment_style": investment_style,
-                "indicators": self._default_indicators,
                 "explanation": (
                     "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다. "
                     "상세 로그는 서버 콘솔을 확인해주세요."
