@@ -7,6 +7,7 @@ import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail from "./StockDetail";
 import { api } from "@/api/client";
+import { mapSymbolToDisplayName } from "@/lib/stocks";
 import {
     generateMockPriceSeries,
     generateRandomActions,
@@ -351,13 +352,20 @@ export default function Home({
                 const portfolio = await api.getPortfolio(userId);
                 if (cancelled || !portfolio) return;
 
-                const mappedStocks: Stock[] = (portfolio.holdings || []).map((holding: any) => ({
-                    name: holding.symbol ?? "알 수 없음",
-                    quantity: holding.quantity ?? 0,
-                    averagePrice: holding.avg_price ?? 0,
-                    totalValue: (holding.current_price ?? holding.avg_price ?? 0) * (holding.quantity ?? 0),
-                    logoUrl: undefined,
-                }));
+                const mappedStocks: Stock[] = (portfolio.holdings || []).map((holding: any) => {
+                    const displayName = mapSymbolToDisplayName(holding.symbol) || holding.symbol || "알 수 없음";
+                    const quantity = holding.quantity ?? 0;
+                    const averagePrice = holding.avg_price ?? 0;
+                    const currentPrice = holding.current_price ?? holding.avg_price ?? 0;
+
+                    return {
+                        name: displayName,
+                        quantity,
+                        averagePrice,
+                        totalValue: currentPrice * quantity,
+                        logoUrl: undefined,
+                    };
+                });
 
                 setPortfolioStocks(mappedStocks);
                 if (typeof portfolio.total_asset === "number") {

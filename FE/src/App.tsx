@@ -11,6 +11,10 @@ import Home from "./components/Home";
 import Settings from "./components/Settings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
+import {
+    resolveStockSymbol,
+    mapSymbolToDisplayName,
+} from "./lib/stocks";
 
 type Page =
     | "start"
@@ -104,11 +108,6 @@ const DISPLAY_TO_BACKEND_STYLE: Record<InvestmentStyle, BackendInvestmentStyle> 
     안정형: "conservative",
 };
 
-const STOCK_NAME_TO_SYMBOL: Record<string, string> = {
-    "삼성전자": "005930.KS",
-    "SK하이닉스": "000660.KS",
-};
-
 function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
     if (!style) return "";
     return BACKEND_TO_DISPLAY_STYLE[style as BackendInvestmentStyle] ?? "";
@@ -116,22 +115,6 @@ function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
 
 function mapDisplayStyleToBackend(style: string): BackendInvestmentStyle | null {
     return DISPLAY_TO_BACKEND_STYLE[style as InvestmentStyle] ?? null;
-}
-
-function resolveStockSymbol(rawName: string): string {
-    const trimmed = rawName?.trim();
-    if (!trimmed) return "";
-
-    const mappedSymbol = STOCK_NAME_TO_SYMBOL[trimmed];
-    if (mappedSymbol) {
-        return mappedSymbol;
-    }
-
-    if (/^\d{6}$/.test(trimmed)) {
-        return `${trimmed}.KS`;
-    }
-
-    return trimmed.toUpperCase();
 }
 
 function parsePositiveInteger(value: string): number | null {
@@ -142,6 +125,7 @@ function parsePositiveInteger(value: string): number | null {
     return numericValue;
 }
 
+
 function mapHoldingsToStocks(holdings: any[]): Stock[] {
     return (holdings || []).map((holding: any) => {
         const rawQuantity = Number(holding?.quantity ?? 0);
@@ -151,9 +135,10 @@ function mapHoldingsToStocks(holdings: any[]): Stock[] {
         const quantity = Number.isNaN(rawQuantity) ? 0 : rawQuantity;
         const averagePrice = Number.isNaN(rawAvgPrice) ? 0 : rawAvgPrice;
         const currentPrice = Number.isNaN(rawCurrentPrice) ? averagePrice : rawCurrentPrice;
+        const displayName = mapSymbolToDisplayName(holding?.symbol) || holding?.symbol || "알 수 없음";
 
         return {
-            name: holding?.symbol ?? "알 수 없음",
+            name: displayName,
             quantity,
             averagePrice,
             totalValue: quantity * currentPrice,
