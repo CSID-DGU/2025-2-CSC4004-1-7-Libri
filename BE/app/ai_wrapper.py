@@ -305,16 +305,39 @@ class A2CWrapper:
                 )
                 action = int(np.argmax(probs))
 
-            # Get XAI features
+            # Get XAI features (Top-3)
             _, _, _, top_features = explain_a2c.get_top_features(
                 state, self.agent, self.explainer, self.feature_names, top_k=3
             )
+
+            # 🔹 Top-3 지표에 현재 값(value) 주입
+            try:
+                last_row = last_window.iloc[-1]  # 이 함수 안에서 이미 만든 마지막 윈도우 DataFrame
+                for feat in top_features:
+                    if not isinstance(feat, dict):
+                        continue
+
+                    base_name = (
+                        feat.get("base")
+                        or feat.get("name")
+                        or feat.get("indicator")
+                    )
+
+                    if base_name and base_name in last_row.index:
+                        try:
+                            feat["value"] = float(last_row[base_name])
+                        except Exception:
+                            # 개별 지표 값 변환 실패해도 전체 로직엔 영향 없게 무시
+                            pass
+            except Exception:
+                # value 주입과정 전체가 실패해도 모델 추론은 그대로 가도록
+                pass
 
             return {
                 "date": last_date.strftime("%Y-%m-%d"),
                 "action": int(action),  # 0: Long, 1: Short, 2: Hold
                 "probs": probs.tolist(),
-                "xai_features": top_features,
+                "xai_features": top_features,  # 이제 각 feat 안에 value가 들어 있음
             }
 
         except Exception as e:
@@ -569,6 +592,29 @@ class MarlWrapper:
 
             top_features = get_top_features_marl(agent_analyses)
 
+            # 🔹 Top-3 지표에 현재 값(value) 주입
+            try:
+                # 위에서 self.processor.process(raw_df)는 이미 호출되어 있고,
+                # 그 결과로 features_df / norm_features 같은 DataFrame이 있음
+                last_row = features_df.iloc[-1]
+                for feat in top_features:
+                    if not isinstance(feat, dict):
+                        continue
+
+                    name = (
+                        feat.get("name")
+                        or feat.get("base")
+                        or feat.get("indicator")
+                    )
+
+                    if name and name in last_row.index:
+                        try:
+                            feat["value"] = float(last_row[name])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
             signal_int = 2
             if final_signal_str in ["매수", "적극 매수"]:
                 signal_int = 0
@@ -580,7 +626,7 @@ class MarlWrapper:
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
-                "xai_features": top_features,
+                "xai_features": top_features,  # 여기에도 value 붙음
             }
 
         except Exception as e:
@@ -707,33 +753,58 @@ class AIService:
             # OpenAI GPT 기반 상세 설명 시도
             # -----------------------------
             try:
-                # XAI에서 넘어온 top features를 feature_importance 형태로 변환
+                # XAI에서 넘어온 top features를 feature_importance / technical_indicators 형태로 변환
                 feature_importance: Dict[str, float] = {}
-                for i, feat in enumerate(xai_features):
-                    if isinstance(feat, dict):
-                        fname = (
-                            feat.get("name")
-                            or feat.get("feature")
-                            or feat.get("indicator")
-                            or f"feature_{i}"
-                        )
+                technical_indicators: Dict[str, float] = {}
+
+                # Top-3만 사용 (xai_features 자체가 이미 top-k지만 방어적으로 [:3])
+                for i, feat in enumerate(xai_features[:3]):
+                    if not isinstance(feat, dict):
+                        continue
+
+                    # 🔹 지표 이름 통합: A2C(base), MARL(name) 모두 커버
+                    fname = (
+                        feat.get("name")
+                        or feat.get("base")
+                        or feat.get("feature")
+                        or feat.get("indicator")
+                        or f"feature_{i}"
+                    )
+
+                    # 🔹 중요도 추출: MARL(importance), A2C(shap) 모두 커버
+                    importance_val: float = 0.0
+                    for key in ("importance", "shap", "value", "score"):
+                        if feat.get(key) is not None:
+                            try:
+                                importance_val = float(feat.get(key))  # type: ignore[arg-type]
+                            except Exception:
+                                importance_val = 0.0
+                            break
+
+                    feature_importance[fname] = importance_val
+
+                    # 🔹 실제 지표 값(value)을 technical_indicators에 반영
+                    if feat.get("value") is not None:
                         try:
-                            importance_val = float(
-                                feat.get("importance")
-                                or feat.get("value")
-                                or feat.get("score")
-                                or 0.0
-                            )
+                            technical_indicators[fname] = float(feat.get("value"))  # type: ignore[arg-type]
                         except Exception:
-                            importance_val = 0.0
-                        feature_importance[fname] = importance_val
+                            # value 파싱 실패 시에는 해당 지표만 생략
+                            pass
 
                 # GPT 서비스 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
-                    technical_indicators={}, # 이 부분에 XAI의 TOP3 지표를 넣으면 됨
+                    technical_indicators=technical_indicators,
                     feature_importance=feature_importance,
                 )
+
+                if isinstance(gpt_explanation, str) and gpt_explanation.strip():
+                    # GPT가 성공하면 [GPT] 태그로 덮어쓰기
+                    explanation = "[GPT] " + gpt_explanation.strip()
+
+            except Exception as gpt_err:
+                # GPT 호출 실패 시에는 기존 규칙 기반 설명 사용
+                print(f"[AIService] GPT explanation failed, fallback to rule-based: {gpt_err}")
 
                 if isinstance(gpt_explanation, str) and gpt_explanation.strip():
                     # GPT가 성공하면 [GPT] 태그로 덮어쓰기
