@@ -152,8 +152,7 @@ def add_holding(db: Session, user_id: int, holding_data: schemas.HoldingCreate):
         signal="BUY",
         entry_price=holding_data.avg_price,
         shares=holding_data.quantity,
-        portfolio_value=portfolio.total_asset if hasattr(portfolio, 'total_asset') else 0, # 현재 가치는 계산 필요하지만 일단 0 또는 임시값
-        confidence_score=1.0 # 사용자 직접 투자이므로 신뢰도 100%
+        portfolio_value=portfolio.total_asset if hasattr(portfolio, 'total_asset') else 0 # 현재 가치는 계산 필요하지만 일단 0 또는 임시값
     )
     db.add(history_record) # 기록 저장
 
@@ -193,8 +192,7 @@ def sell_holding(db: Session, user_id: int, sell_data: schemas.HoldingSell):
         signal="SELL",
         entry_price=sell_data.sell_price,
         shares=sell_data.quantity,
-        pnl=profit, # 이번 거래로 번 돈 (손익)
-        confidence_score=1.0
+        pnl=profit # 이번 거래로 번 돈 (손익)
     )
     db.add(sell_record)
 

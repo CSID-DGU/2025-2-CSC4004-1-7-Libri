@@ -83,8 +83,7 @@ class InvestmentRecord(Base):
     # 해당 거래의 손익
     pnl = Column(Float, nullable=True)
 
-    # 모델 신뢰도와 GPT 설명
-    confidence_score = Column(Float, nullable=True)
+    # GPT 설명
     gpt_explanation = Column(Text, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
