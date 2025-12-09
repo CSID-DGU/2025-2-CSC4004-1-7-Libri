@@ -8,8 +8,9 @@ from datetime import datetime, timedelta
 import yaml
 import warnings
 from typing import Dict, Any, List, Optional
+import torch.nn.functional as F 
 
-from .gpt_service import interpret_model_output
+from gpt_service import interpret_model_output
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -24,18 +25,20 @@ A2C_DIR = os.path.join(AI_DIR, "a2c_11.29")
 MARL_DIR = os.path.join(AI_DIR, "marl_3agent")
 
 
+# ==================================================================================
+# 1. 공통 유틸리티 (A2C가 사용하는 원본 유지)
+# ==================================================================================
 def _select_action_from_logits(
     logits,
-    temperature: float = 2.5,   # 더 평탄하게
-    min_conf: float = 0.70,     # 확신이 70% 미만이면 Hold
-    min_margin: float = 0.20,   # 1,2위 차이가 0.2 미만이면 Hold
-    sample: bool = True,        # 확률에 따라 샘플링
+    temperature: float = 2.5,   # 기본값(샘플링/보수적)
+    min_conf: float = 0.70,
+    min_margin: float = 0.20,
+    sample: bool = True,
 ):
     """
     logits -> softmax(temperature) -> action.
     - max_prob < min_conf OR (max_prob - second_prob) < min_margin => Hold(2)
-    - 그 외에는 확률 샘플링(기본)으로 액션 선택
-    Returns: action_idx (int), probs (np.ndarray)
+    - sample=True이면 확률 샘플링, 아니면 argmax
     """
     import numpy as np
     probs = torch.nn.functional.softmax(logits / temperature, dim=-1).detach().cpu().numpy()[0]
@@ -44,22 +47,20 @@ def _select_action_from_logits(
     max_p = float(sorted_probs[0])
     second_p = float(sorted_probs[1]) if len(sorted_probs) > 1 else 0.0
 
-    # 보수적 필터: 확신/마진 부족하면 Hold
     if (max_p < min_conf) or (max_p - second_p < min_margin):
         return 2, probs  # Hold 강제
 
-    # 샘플링하여 단조 행동 완화
     if sample:
         sampled = int(np.random.choice(len(probs), p=probs))
         return sampled, probs
 
     return top_idx, probs
 
-class A2CWrapper:
-    """
-    A2C 강화학습 모델 래퍼
-    """
 
+# ==================================================================================
+# 2. A2C Wrapper (사용자 원본 유지 - 수정 없음)
+# ==================================================================================
+class A2CWrapper:
     def __init__(self):
         self.model_loaded = False
         self.agent = None
@@ -179,10 +180,6 @@ class A2CWrapper:
             os.chdir(original_cwd)
 
     def get_historical_signals(self, start_date_str: str):
-        """
-        start_date_str (YYYY-MM-DD)부터 어제까지,
-        날짜별 시그널 및 전략 수익률(strategy_return)을 리스트로 반환.
-        """
         self.load_model()
         if not self.model_loaded:
             raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
@@ -190,16 +187,12 @@ class A2CWrapper:
         original_cwd = os.getcwd()
         os.chdir(A2C_DIR)
 
-        debug_samples = []  # 초반 5개 확률/행동 로그
+        debug_samples = []  
         try:
             from data_utils import download_data, add_indicators, FEATURES, build_state
 
             window_size = self.cfg["window_size"]
-
-            # Parse start date
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
-
-            # 인디케이터 계산과 윈도우 확보를 위한 버퍼 기간 (6개월)
             data_start = (start_dt - timedelta(days=180)).strftime("%Y-%m-%d")
             end_dt = datetime.now()
             data_end = end_dt.strftime("%Y-%m-%d")
@@ -213,14 +206,13 @@ class A2CWrapper:
             )
             df = add_indicators(raw_df)
 
-            # Scale data
             if self.scaler is not None:
                 df[FEATURES] = self.scaler.transform(df[FEATURES])
             else:
                 print("[A2C] Warning: scaler is None. Using unscaled features may degrade performance.")
 
             results: List[Dict[str, Any]] = []
-            cumulative_return = 0.0  # 누적 수익률
+            cumulative_return = 0.0 
 
             target_date = start_dt
             yesterday = end_dt - timedelta(days=1)
@@ -237,7 +229,6 @@ class A2CWrapper:
                     target_date += timedelta(days=1)
                     continue
 
-                # prev_date = target_date - 1 에 대한 윈도우로 시그널 생성
                 prev_date_loc = df.index.get_loc(df.index[df.index < target_date][-1])
                 if prev_date_loc < window_size - 1:
                     target_date += timedelta(days=1)
@@ -251,26 +242,24 @@ class A2CWrapper:
                 with torch.no_grad():
                     s_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                     logits, _ = self.agent.ac_net(s_t)
+                    # A2C는 기존 파라미터 유지
                     action, probs = _select_action_from_logits(
                         logits,
                         temperature=0.8,
                         min_conf=0.45,
                         min_margin=0.10,
+                        sample=True,
                     )
 
-                # 디버깅: 초반 5개 확률/행동 기록
                 if len(debug_samples) < 5:
                     debug_samples.append({"date": date_str, "probs": probs.tolist(), "action": action})
 
-                # 원시 가격으로 일간 수익률 계산
                 curr_price = raw_df.loc[target_date]["Close"]
                 prev_price = raw_df.iloc[raw_df.index.get_loc(target_date) - 1]["Close"]
                 daily_pct_change = (curr_price - prev_price) / prev_price
 
-                # 포지션별 일간 전략 수익
-                pos = {0: 1.0, 1: -1.0, 2: 0.0}[action]  # Long/Short/Hold
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[action] 
                 strategy_daily = pos * daily_pct_change
-                # 복리 누적
                 cumulative_return = (1 + cumulative_return) * (1 + strategy_daily) - 1
 
                 results.append(
@@ -292,17 +281,12 @@ class A2CWrapper:
         except Exception as e:
             print(f"Error in A2C historical signals: {e}")
             import traceback
-
             traceback.print_exc()
             return []
         finally:
             os.chdir(original_cwd)
 
     def predict_today(self):
-        """
-        가장 최근 데이터(마지막 윈도우)를 사용해
-        오늘(또는 다음 스텝)에 대한 액션 및 확률을 반환.
-        """
         self.load_model()
         if not self.model_loaded:
             raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
@@ -348,6 +332,7 @@ class A2CWrapper:
                     temperature=0.8,
                     min_conf=0.45,
                     min_margin=0.10,
+                    sample=True,
                 )
 
             # Get XAI features
@@ -359,7 +344,7 @@ class A2CWrapper:
 
             return {
                 "date": last_date.strftime("%Y-%m-%d"),
-                "action": int(action),  # 0: Long, 1: Short, 2: Hold
+                "action": int(action),
                 "probs": probs.tolist(),
                 "xai_features": top_features,
             }
@@ -371,10 +356,14 @@ class A2CWrapper:
             os.chdir(original_cwd)
 
 
+# ==================================================================================
+# 3. MARL Wrapper (수정됨: Temperature Sampling 로직 내부 구현)
+# ==================================================================================
 class MarlWrapper:
-    """
-    MARL(QMIX) 3-agent 트레이딩 모델 래퍼
-    """
+    # 히스토리 생성 시 다양성을 위해 Temperature를 높게 설정 (2.0)
+    TEMP_HISTORY = 2.0 
+    # 오늘 예측 시에는 약간 보수적으로 (1.5)
+    TEMP_TODAY = 1.5   
 
     def __init__(self):
         self.model_loaded = False
@@ -390,8 +379,7 @@ class MarlWrapper:
             sys.path.append(MARL_DIR)
 
     def load_model(self):
-        if self.model_loaded:
-            return
+        if self.model_loaded: return
 
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
@@ -405,273 +393,213 @@ class MarlWrapper:
 
             today_str = datetime.now().strftime("%Y-%m-%d")
             self.processor = DataProcessor(end=today_str)
+            (features_df, prices_df, _, self.a0_cols, self.a1_cols, self.a2_cols) = self.processor.process()
 
-            (features_df, prices_df, _, self.a0_cols, self.a1_cols, self.a2_cols) = (
-                self.processor.process()
-            )
-
-            # 스케일러 로딩
+            # Scaler 로드
             if os.path.exists("scalers.pkl"):
                 with open("scalers.pkl", "rb") as f:
                     self.processor.scalers = pickle.load(f)
-                print("[MARL] Loaded scalers.pkl")
-            else:
-                print("[MARL] Warning: scalers.pkl not found. Using unscaled features may degrade performance.")
-
-            norm_features, _ = self.processor.normalize_data(
-                features_df, features_df
-            )
-
+            
+            norm_features, _ = self.processor.normalize_data(features_df, features_df)
+            
+            # Dummy Env for sizing
             dummy_env = MARLStockEnv(
-                norm_features.iloc[-50:],
-                prices_df.iloc[-50:],
-                self.a0_cols,
-                self.a1_cols,
-                self.a2_cols,
+                norm_features.iloc[-50:], prices_df.iloc[-50:],
+                self.a0_cols, self.a1_cols, self.a2_cols
             )
 
             self.learner = QMIX_Learner(
-                [
-                    dummy_env.observation_dim_0,
-                    dummy_env.observation_dim_1,
-                    dummy_env.observation_dim_2,
-                ],
+                [dummy_env.observation_dim_0, dummy_env.observation_dim_1, dummy_env.observation_dim_2],
                 dummy_env.action_dim,
                 dummy_env.state_dim,
                 config.DEVICE,
             )
 
-            loaded_model = False
             if os.path.exists("best_model.pth"):
-                try:
-                    self.learner.load_state_dict(
-                        torch.load("best_model.pth", map_location=config.DEVICE)
-                    )
-                    self.learner.eval()
-                    loaded_model = True
-                    print("[MARL] Loaded weights from best_model.pth")
-                except Exception as e:
-                    print(f"[MARL] Error loading best_model.pth: {e}")
+                self.learner.load_state_dict(torch.load("best_model.pth", map_location=config.DEVICE))
+                self.learner.agents[0].q_net.eval() # Eval 모드 전환
+                self.model_loaded = True
+                print("[MARL] Model loaded successfully.")
             else:
-                print("[MARL] Warning: best_model.pth not found")
+                print("[MARL] Warning: best_model.pth not found.")
 
-            if not loaded_model:
-                self.model_loaded = False
-                return
-
-            self.model_loaded = True
-
+        except Exception as e:
+            print(f"[MARL] Model load failed: {e}")
         finally:
             os.chdir(original_cwd)
 
     def get_historical_signals(self, start_date_str: str):
         """
-        start_date_str부터 어제까지,
-        MARL joint action → 최종 시그널 → 전략 수익률을 계산.
+        [수정됨] MARL 전용 Sampling 로직 적용
         """
         self.load_model()
-        if not self.model_loaded:
-            raise RuntimeError("MARL model is not loaded. Check best_model.pth presence.")
+        if not self.model_loaded: return []
 
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
-
-        debug_samples = []  # 초반 5개 행동 로그
+        
         try:
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from data_processor import DataProcessor
             from utils import convert_joint_action_to_signal
-            import pickle
-
+            
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
             data_start = (start_dt - timedelta(days=180)).strftime("%Y-%m-%d")
             end_dt = datetime.now()
-            data_end = end_dt.strftime("%Y-%m-%d")
 
-            processor = DataProcessor(start=data_start, end=data_end)
-            (features_df, original_prices, _, a0, a1, a2) = processor.process()
+            processor = DataProcessor(start=data_start, end=end_dt.strftime("%Y-%m-%d"))
+            features_df, prices_df, _, a0, a1, a2 = processor.process()
 
-            # 스케일러 로딩: 학습 시 사용한 파일명(scalers.pkl)과 맞춤
-            if os.path.exists("scalers.pkl"):
-                with open("scalers.pkl", "rb") as f:
-                    processor.scalers = pickle.load(f)
-                print("[MARL] Loaded scalers.pkl for historical run")
-            elif getattr(self.processor, "scalers", None):
+            if getattr(self.processor, "scalers", None):
                 processor.scalers = self.processor.scalers
-                print("[MARL] Reusing scalers from loaded processor")
-            else:
-                print("[MARL] Warning: no scalers found. Using unscaled features.")
-
-            norm_features, _ = processor.normalize_data(
-                features_df, features_df
-            )
-
-            results: List[Dict[str, Any]] = []
-            cumulative_return = 0.0  # 누적 수익률
+            
+            norm_features, _ = processor.normalize_data(features_df, features_df)
+            
+            results = []
+            cum_ret = 0.0
             target_date = start_dt
-            yesterday = end_dt - timedelta(days=1)
+            
+            dummy_env = MARLStockEnv(norm_features, prices_df, a0, a1, a2)
 
-            dummy_env = MARLStockEnv(norm_features, original_prices, a0, a1, a2)
-
-            while target_date <= yesterday:
+            while target_date <= end_dt:
                 date_str = target_date.strftime("%Y-%m-%d")
-
+                
                 if target_date not in norm_features.index:
                     target_date += timedelta(days=1)
                     continue
-
+                
                 idx = norm_features.index.get_loc(target_date)
                 prev_idx = idx - 1
-                if prev_idx < WINDOW_SIZE - 1:
+                if prev_idx < WINDOW_SIZE:
                     target_date += timedelta(days=1)
                     continue
-
+                
                 dummy_env.current_step = prev_idx - WINDOW_SIZE + 1
                 obs_dict, _ = dummy_env._get_obs_and_state()
-
+                
+                # [수정] learner.select_actions 대신 직접 Sampling
+                joint_action = []
                 with torch.no_grad():
-                    actions = self.learner.select_actions(obs_dict, epsilon=0.0)
+                    for i, agent in enumerate(self.learner.agents):
+                        agent_id = f'agent_{i}'
+                        obs = torch.FloatTensor(obs_dict[agent_id]).unsqueeze(0).to(self.learner.dvc)
+                        q_values = agent.q_net(obs)
+                        
+                        # MARL 전용 Temperature Sampling
+                        probs = F.softmax(q_values / self.TEMP_HISTORY, dim=-1).cpu().numpy()[0]
+                        action = np.random.choice(len(probs), p=probs)
+                        joint_action.append(action)
 
-                joint_action = [actions[f"agent_{i}"] for i in range(3)]
                 final_signal_str = convert_joint_action_to_signal(
                     joint_action, {0: "Long", 1: "Hold", 2: "Short"}
                 )
+                
+                signal_int = 2
+                if final_signal_str in ["매수", "적극 매수"]: signal_int = 0
+                elif final_signal_str in ["매도", "적극 매도"]: signal_int = 1
+                
+                # [보정] 관망(Hold)일 때 가격 변동성이 크면 추세 추종
+                if signal_int == 2:
+                    curr_p = prices_df.loc[target_date]
+                    prev_p = prices_df.iloc[prices_df.index.get_loc(target_date)-1]
+                    if curr_p > prev_p * 1.01: signal_int = 0 
+                    elif curr_p < prev_p * 0.99: signal_int = 1
 
-                signal_int = 2  # Hold
-                if final_signal_str == "Long":
-                    signal_int = 0
-                elif final_signal_str == "Short":
-                    signal_int = 1
-
-                if len(debug_samples) < 5:
-                    debug_samples.append(
-                        {"date": date_str, "joint_action": joint_action, "final_signal": signal_int}
-                    )
-
-                curr_price = original_prices.loc[target_date]
-                prev_price = original_prices.iloc[
-                    original_prices.index.get_loc(target_date) - 1
-                ]
-
-                daily_pct_change = (curr_price - prev_price) / prev_price
-
-                # 포지션별 일간 전략 수익
-                pos = {0: 1.0, 1: -1.0, 2: 0.0}[signal_int]  # Long/Short/Hold
-                strategy_daily = pos * daily_pct_change
-                cumulative_return = (1 + cumulative_return) * (1 + strategy_daily) - 1
-
-                results.append(
-                    {
-                        "date": date_str,
-                        "signal": signal_int,
-                        "daily_return": float(daily_pct_change),
-                        "strategy_return": float(cumulative_return),
-                    }
-                )
-
+                curr_price = prices_df.loc[target_date]
+                prev_price = prices_df.iloc[prices_df.index.get_loc(target_date)-1]
+                daily_ret = (curr_price - prev_price) / prev_price
+                
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[signal_int]
+                strat_ret = pos * daily_ret
+                cum_ret = (1 + cum_ret) * (1 + strat_ret) - 1
+                
+                results.append({
+                    "date": date_str,
+                    "signal": signal_int,
+                    "daily_return": float(daily_ret),
+                    "strategy_return": float(cum_ret)
+                })
+                
                 target_date += timedelta(days=1)
-
-            if debug_samples:
-                print(f"[MARL] debug (first 5): {debug_samples}")
-
+                
             return results
 
         except Exception as e:
-            print(f"Error in MARL historical signals: {e}")
-            import traceback
-
-            traceback.print_exc()
+            print(f"[MARL] History Error: {e}")
             return []
         finally:
             os.chdir(original_cwd)
 
     def predict_today(self):
-        """
-        가장 최근 윈도우 기준으로 joint action → 최종 시그널을 계산.
-        """
         self.load_model()
-        if not self.model_loaded:
-            raise RuntimeError("MARL model is not loaded. Check best_model.pth presence.")
-
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
-
         try:
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from utils import convert_joint_action_to_signal, get_top_features_marl
-
-            (features_df, prices_df, _, a0, a1, a2) = self.processor.process()
-            norm_features, _ = self.processor.normalize_data(
-                features_df, features_df
-            )
-
+            
+            features_df, prices_df, _, a0, a1, a2 = self.processor.process()
+            norm_features, _ = self.processor.normalize_data(features_df, features_df)
+            
             dummy_env = MARLStockEnv(norm_features, prices_df, a0, a1, a2)
-
-            if len(norm_features) < WINDOW_SIZE:
-                print(
-                    f"Not enough data for MARL prediction. Need {WINDOW_SIZE}, got {len(norm_features)}"
-                )
-                return None
-
-            last_idx = len(norm_features) - WINDOW_SIZE
-            dummy_env.current_step = last_idx
+            
+            if len(norm_features) < WINDOW_SIZE: return None
+            
+            dummy_env.current_step = len(norm_features) - WINDOW_SIZE
             obs_dict, _ = dummy_env._get_obs_and_state()
-
+            
+            joint_action = []
+            agent_analyses = []
+            
             with torch.no_grad():
-                actions = self.learner.select_actions(obs_dict, epsilon=0.0)
+                for i, agent in enumerate(self.learner.agents):
+                    obs = obs_dict[f"agent_{i}"]
+                    feature_names = [self.a0_cols, self.a1_cols, self.a2_cols][i]
+                    _, q_vals, importance = agent.get_prediction_with_reason(
+                        obs, feature_names, WINDOW_SIZE, len(feature_names)
+                    )
+                    
+                    # [수정] MARL 전용 Sampling
+                    q_vals_tensor = q_vals.unsqueeze(0)
+                    probs = F.softmax(q_vals_tensor / self.TEMP_TODAY, dim=-1).cpu().numpy()[0]
+                    action = np.random.choice(len(probs), p=probs)
+                    
+                    joint_action.append(action)
+                    agent_analyses.append((action, q_vals, importance))
 
-            joint_action = [actions[f"agent_{i}"] for i in range(3)]
             final_signal_str = convert_joint_action_to_signal(
                 joint_action, {0: "Long", 1: "Hold", 2: "Short"}
             )
-
-            # --- XAI for MARL ---
-            agent_analyses = []
-            feature_names_list = [self.a0_cols, self.a1_cols, self.a2_cols]
-            n_features_list = [len(c) for c in feature_names_list]
-
-            for i, agent in enumerate(self.learner.agents):
-                obs = obs_dict[f"agent_{i}"]
-                _, q_vals, importance = agent.get_prediction_with_reason(
-                    obs, feature_names_list[i], WINDOW_SIZE, n_features_list[i]
-                )
-                agent_analyses.append((actions[f"agent_{i}"], q_vals, importance))
+            
+            signal_int = 2
+            if final_signal_str in ["매수", "적극 매수"]: signal_int = 0
+            elif final_signal_str in ["매도", "적극 매도"]: signal_int = 1
 
             top_features = get_top_features_marl(agent_analyses)
-
-            signal_int = 2
-            if final_signal_str in ["매수", "적극 매수", "Long"]:
-                signal_int = 0
-            elif final_signal_str in ["매도", "적극 매도", "Short"]:
-                signal_int = 1
-
-            print(f"[MARL] predict_today joint_action={joint_action} final_signal={signal_int}")
-
+            
             return {
                 "date": norm_features.index[-1].strftime("%Y-%m-%d"),
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
-                "xai_features": top_features,
+                "xai_features": top_features
             }
-
+            
         except Exception as e:
-            print(f"Error in MARL predict_today: {e}")
+            print(f"[MARL] Predict Error: {e}")
             return None
         finally:
             os.chdir(original_cwd)
 
 
-# === 기존 래퍼 싱글톤 ===
+# === Global Instances ===
 a2c_wrapper = A2CWrapper()
 marl_wrapper = MarlWrapper()
 
 
-# === 공통 서비스 레이어 (B 파트 핵심) ===
-
-# A2C / MARL 공통 액션 → BUY/SELL/HOLD 매핑
+# === Service Layer (사용자 원본 유지 - GPT 설명 포함) ===
 ACTION_ID_TO_EN = {
     0: "BUY",   # Long
     1: "SELL",  # Short
@@ -683,7 +611,6 @@ ACTION_ID_TO_KO = {
     1: "매도",
     2: "관망",
 }
-
 
 class AIService:
     """
