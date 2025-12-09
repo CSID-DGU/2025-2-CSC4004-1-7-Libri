@@ -24,13 +24,40 @@ A2C_DIR = os.path.join(AI_DIR, "a2c_11.29")
 MARL_DIR = os.path.join(AI_DIR, "marl_3agent")
 
 
+def _select_action_from_logits(
+    logits,
+    temperature: float = 2.5,   # 더 평탄하게
+    min_conf: float = 0.70,     # 확신이 70% 미만이면 Hold
+    min_margin: float = 0.20,   # 1,2위 차이가 0.2 미만이면 Hold
+    sample: bool = True,        # 확률에 따라 샘플링
+):
+    """
+    logits -> softmax(temperature) -> action.
+    - max_prob < min_conf OR (max_prob - second_prob) < min_margin => Hold(2)
+    - 그 외에는 확률 샘플링(기본)으로 액션 선택
+    Returns: action_idx (int), probs (np.ndarray)
+    """
+    import numpy as np
+    probs = torch.nn.functional.softmax(logits / temperature, dim=-1).detach().cpu().numpy()[0]
+    sorted_probs = np.sort(probs)[::-1]
+    top_idx = int(np.argmax(probs))
+    max_p = float(sorted_probs[0])
+    second_p = float(sorted_probs[1]) if len(sorted_probs) > 1 else 0.0
+
+    # 보수적 필터: 확신/마진 부족하면 Hold
+    if (max_p < min_conf) or (max_p - second_p < min_margin):
+        return 2, probs  # Hold 강제
+
+    # 샘플링하여 단조 행동 완화
+    if sample:
+        sampled = int(np.random.choice(len(probs), p=probs))
+        return sampled, probs
+
+    return top_idx, probs
+
 class A2CWrapper:
     """
-    A2C 강화학습 모델을 래핑하는 클래스.
-
-    - load_model(): 모델/스케일러/config 로딩
-    - get_historical_signals(start_date_str): 특정 날짜부터의 히스토리컬 시그널 + 수익률 계산
-    - predict_today(): 오늘(또는 가장 최근 데이터 기준) 액션 및 확률 반환
+    A2C 강화학습 모델 래퍼
     """
 
     def __init__(self):
@@ -50,10 +77,10 @@ class A2CWrapper:
         if self.model_loaded:
             return
 
-        try:
-            original_cwd = os.getcwd()
-            os.chdir(A2C_DIR)
+        original_cwd = os.getcwd()
+        os.chdir(A2C_DIR)
 
+        try:
             import ac_model
             import data_utils
             import explain_a2c
@@ -67,7 +94,7 @@ class A2CWrapper:
             if os.path.exists(scaler_path):
                 self.scaler = joblib.load(scaler_path)
             else:
-                print(f"Warning: Scaler not found at {scaler_path}")
+                print(f"[A2C] Warning: Scaler not found at {scaler_path}")
 
             # Initialize Agent
             model_cfg = self.cfg["model_cfg"]
@@ -86,11 +113,22 @@ class A2CWrapper:
                 device=self.cfg.get("device", "cpu"),
             )
 
+            # Load weights
             model_path = self.cfg["model_path"]
+            loaded_model = False
             if os.path.exists(model_path):
-                self.agent.load(model_path)
+                try:
+                    self.agent.load(model_path)
+                    loaded_model = True
+                    print(f"[A2C] Loaded weights from {model_path}")
+                except Exception as e:
+                    print(f"[A2C] Error loading weights from {model_path}: {e}")
             else:
-                print(f"Warning: Model not found at {model_path}")
+                print(f"[A2C] Warning: Model not found at {model_path}")
+
+            if not loaded_model:
+                self.model_loaded = False
+                return
 
             self.model_loaded = True
 
@@ -137,8 +175,6 @@ class A2CWrapper:
             self.explainer = shap.KernelExplainer(model_f, bg_summary)
             self.feature_names = explain_a2c.get_feature_names_with_position(window_size)
 
-        except Exception as e:
-            print(f"Error loading A2C model: {e}")
         finally:
             os.chdir(original_cwd)
 
@@ -149,11 +185,12 @@ class A2CWrapper:
         """
         self.load_model()
         if not self.model_loaded:
-            return []
+            raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
 
         original_cwd = os.getcwd()
         os.chdir(A2C_DIR)
 
+        debug_samples = []  # 초반 5개 확률/행동 로그
         try:
             from data_utils import download_data, add_indicators, FEATURES, build_state
 
@@ -179,8 +216,11 @@ class A2CWrapper:
             # Scale data
             if self.scaler is not None:
                 df[FEATURES] = self.scaler.transform(df[FEATURES])
+            else:
+                print("[A2C] Warning: scaler is None. Using unscaled features may degrade performance.")
 
             results: List[Dict[str, Any]] = []
+            cumulative_return = 0.0  # 누적 수익률
 
             target_date = start_dt
             yesterday = end_dt - timedelta(days=1)
@@ -211,37 +251,41 @@ class A2CWrapper:
                 with torch.no_grad():
                     s_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                     logits, _ = self.agent.ac_net(s_t)
-                    probs = (
-                        torch.nn.functional.softmax(logits, dim=-1)
-                        .detach()
-                        .cpu()
-                        .numpy()[0]
+                    action, probs = _select_action_from_logits(
+                        logits,
+                        temperature=0.8,
+                        min_conf=0.45,
+                        min_margin=0.10,
                     )
-                    action = int(np.argmax(probs))  # 0: Long, 1: Short, 2: Hold
+
+                # 디버깅: 초반 5개 확률/행동 기록
+                if len(debug_samples) < 5:
+                    debug_samples.append({"date": date_str, "probs": probs.tolist(), "action": action})
 
                 # 원시 가격으로 일간 수익률 계산
                 curr_price = raw_df.loc[target_date]["Close"]
                 prev_price = raw_df.iloc[raw_df.index.get_loc(target_date) - 1]["Close"]
                 daily_pct_change = (curr_price - prev_price) / prev_price
 
-                strategy_return = 0.0
-                if action == 0:  # Long
-                    strategy_return = daily_pct_change
-                elif action == 1:  # Short
-                    strategy_return = -daily_pct_change
-                elif action == 2:  # Hold
-                    strategy_return = 0.0
+                # 포지션별 일간 전략 수익
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[action]  # Long/Short/Hold
+                strategy_daily = pos * daily_pct_change
+                # 복리 누적
+                cumulative_return = (1 + cumulative_return) * (1 + strategy_daily) - 1
 
                 results.append(
                     {
                         "date": date_str,
                         "signal": int(action),
                         "daily_return": float(daily_pct_change),
-                        "strategy_return": float(strategy_return),
+                        "strategy_return": float(cumulative_return),
                     }
                 )
 
                 target_date += timedelta(days=1)
+
+            if debug_samples:
+                print(f"[A2C] debug (first 5): {debug_samples}")
 
             return results
 
@@ -261,7 +305,7 @@ class A2CWrapper:
         """
         self.load_model()
         if not self.model_loaded:
-            return None
+            raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
 
         original_cwd = os.getcwd()
         os.chdir(A2C_DIR)
@@ -284,6 +328,8 @@ class A2CWrapper:
 
             if self.scaler is not None:
                 df[FEATURES] = self.scaler.transform(df[FEATURES])
+            else:
+                print("[A2C] Warning: scaler is None. Using unscaled features may degrade performance.")
 
             window_size = self.cfg["window_size"]
             if len(df) < window_size:
@@ -297,18 +343,19 @@ class A2CWrapper:
             with torch.no_grad():
                 s_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                 logits, _ = self.agent.ac_net(s_t)
-                probs = (
-                    torch.nn.functional.softmax(logits, dim=-1)
-                    .detach()
-                    .cpu()
-                    .numpy()[0]
+                action, probs = _select_action_from_logits(
+                    logits,
+                    temperature=0.8,
+                    min_conf=0.45,
+                    min_margin=0.10,
                 )
-                action = int(np.argmax(probs))
 
             # Get XAI features
             _, _, _, top_features = explain_a2c.get_top_features(
                 state, self.agent, self.explainer, self.feature_names, top_k=3
             )
+
+            print(f"[A2C] predict_today probs={probs.tolist()} action={action}")
 
             return {
                 "date": last_date.strftime("%Y-%m-%d"),
@@ -326,11 +373,7 @@ class A2CWrapper:
 
 class MarlWrapper:
     """
-    MARL(QMIX) 3-agent 트레이딩 모델을 래핑하는 클래스.
-
-    - load_model(): 모델/스케일러/DataProcessor 초기화
-    - get_historical_signals(start_date_str): 날짜별 시그널 및 전략 수익률 계산
-    - predict_today(): 가장 최근 윈도우 기준 액션/공동액션 반환
+    MARL(QMIX) 3-agent 트레이딩 모델 래퍼
     """
 
     def __init__(self):
@@ -367,9 +410,13 @@ class MarlWrapper:
                 self.processor.process()
             )
 
-            if os.path.exists("scaler.pkl"):
-                with open("scaler.pkl", "rb") as f:
+            # 스케일러 로딩
+            if os.path.exists("scalers.pkl"):
+                with open("scalers.pkl", "rb") as f:
                     self.processor.scalers = pickle.load(f)
+                print("[MARL] Loaded scalers.pkl")
+            else:
+                print("[MARL] Warning: scalers.pkl not found. Using unscaled features may degrade performance.")
 
             norm_features, _ = self.processor.normalize_data(
                 features_df, features_df
@@ -394,17 +441,26 @@ class MarlWrapper:
                 config.DEVICE,
             )
 
+            loaded_model = False
             if os.path.exists("best_model.pth"):
-                self.learner.load_state_dict(
-                    torch.load("best_model.pth", map_location=config.DEVICE)
-                )
-                self.learner.eval()
-                self.model_loaded = True
+                try:
+                    self.learner.load_state_dict(
+                        torch.load("best_model.pth", map_location=config.DEVICE)
+                    )
+                    self.learner.eval()
+                    loaded_model = True
+                    print("[MARL] Loaded weights from best_model.pth")
+                except Exception as e:
+                    print(f"[MARL] Error loading best_model.pth: {e}")
             else:
-                print("Warning: MARL best_model.pth not found")
+                print("[MARL] Warning: best_model.pth not found")
 
-        except Exception as e:
-            print(f"Error loading MARL model: {e}")
+            if not loaded_model:
+                self.model_loaded = False
+                return
+
+            self.model_loaded = True
+
         finally:
             os.chdir(original_cwd)
 
@@ -413,14 +469,15 @@ class MarlWrapper:
         start_date_str부터 어제까지,
         MARL joint action → 최종 시그널 → 전략 수익률을 계산.
         """
+        self.load_model()
+        if not self.model_loaded:
+            raise RuntimeError("MARL model is not loaded. Check best_model.pth presence.")
+
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
 
+        debug_samples = []  # 초반 5개 행동 로그
         try:
-            self.load_model()
-            if not self.model_loaded:
-                return []
-
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from data_processor import DataProcessor
@@ -435,15 +492,23 @@ class MarlWrapper:
             processor = DataProcessor(start=data_start, end=data_end)
             (features_df, original_prices, _, a0, a1, a2) = processor.process()
 
-            if os.path.exists("scaler.pkl"):
-                with open("scaler.pkl", "rb") as f:
+            # 스케일러 로딩: 학습 시 사용한 파일명(scalers.pkl)과 맞춤
+            if os.path.exists("scalers.pkl"):
+                with open("scalers.pkl", "rb") as f:
                     processor.scalers = pickle.load(f)
+                print("[MARL] Loaded scalers.pkl for historical run")
+            elif getattr(self.processor, "scalers", None):
+                processor.scalers = self.processor.scalers
+                print("[MARL] Reusing scalers from loaded processor")
+            else:
+                print("[MARL] Warning: no scalers found. Using unscaled features.")
 
             norm_features, _ = processor.normalize_data(
                 features_df, features_df
             )
 
             results: List[Dict[str, Any]] = []
+            cumulative_return = 0.0  # 누적 수익률
             target_date = start_dt
             yesterday = end_dt - timedelta(days=1)
 
@@ -479,6 +544,11 @@ class MarlWrapper:
                 elif final_signal_str == "Short":
                     signal_int = 1
 
+                if len(debug_samples) < 5:
+                    debug_samples.append(
+                        {"date": date_str, "joint_action": joint_action, "final_signal": signal_int}
+                    )
+
                 curr_price = original_prices.loc[target_date]
                 prev_price = original_prices.iloc[
                     original_prices.index.get_loc(target_date) - 1
@@ -486,22 +556,24 @@ class MarlWrapper:
 
                 daily_pct_change = (curr_price - prev_price) / prev_price
 
-                strategy_return = 0.0
-                if signal_int == 0:  # Long
-                    strategy_return = daily_pct_change
-                elif signal_int == 1:  # Short
-                    strategy_return = -daily_pct_change
+                # 포지션별 일간 전략 수익
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[signal_int]  # Long/Short/Hold
+                strategy_daily = pos * daily_pct_change
+                cumulative_return = (1 + cumulative_return) * (1 + strategy_daily) - 1
 
                 results.append(
                     {
                         "date": date_str,
                         "signal": signal_int,
                         "daily_return": float(daily_pct_change),
-                        "strategy_return": float(strategy_return),
+                        "strategy_return": float(cumulative_return),
                     }
                 )
 
                 target_date += timedelta(days=1)
+
+            if debug_samples:
+                print(f"[MARL] debug (first 5): {debug_samples}")
 
             return results
 
@@ -518,14 +590,14 @@ class MarlWrapper:
         """
         가장 최근 윈도우 기준으로 joint action → 최종 시그널을 계산.
         """
+        self.load_model()
+        if not self.model_loaded:
+            raise RuntimeError("MARL model is not loaded. Check best_model.pth presence.")
+
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
 
         try:
-            self.load_model()
-            if not self.model_loaded:
-                return None
-
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from utils import convert_joint_action_to_signal, get_top_features_marl
@@ -570,10 +642,12 @@ class MarlWrapper:
             top_features = get_top_features_marl(agent_analyses)
 
             signal_int = 2
-            if final_signal_str in ["매수", "적극 매수"]:
+            if final_signal_str in ["매수", "적극 매수", "Long"]:
                 signal_int = 0
-            elif final_signal_str in ["매도", "적극 매도"]:
+            elif final_signal_str in ["매도", "적극 매도", "Short"]:
                 signal_int = 1
+
+            print(f"[MARL] predict_today joint_action={joint_action} final_signal={signal_int}")
 
             return {
                 "date": norm_features.index[-1].strftime("%Y-%m-%d"),
@@ -614,17 +688,11 @@ ACTION_ID_TO_KO = {
 class AIService:
     """
     FastAPI 라우터에서 직접 사용하는 상위 서비스 레이어.
-
-    - A2CWrapper / MarlWrapper를 내부에서 사용
-    - 주가 데이터 다운로드, 모델 inference, 히스토리 기반 승률 계산
-    - "오늘의 추천 행동", "승률", "설명"을 포함한 JSON 응답 생성
     """
 
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
-
-
 
     def _build_explanation(
         self,
@@ -632,20 +700,9 @@ class AIService:
         action_id: int,
         investment_style: str,
     ) -> str:
-        """
-        간단한 자연어 설명 생성.
-        (추후 GPT 연동 시 이 부분만 교체하면 됨)
-        """
         action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
         model_label = "A2C 강화학습" if model_name == "a2c" else "MARL 3-에이전트"
-
-        style_label = (
-            "공격적인"
-            if investment_style == "aggressive"
-            else "안정적인"
-        )
-
-        # 규칙 기반 설명에는 [RULE] 태그
+        style_label = "공격적인" if investment_style == "aggressive" else "안정적인"
         return (
             f"[RULE] {model_label} 모델이 최근 학습된 패턴을 바탕으로 "
             f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다."
@@ -657,26 +714,18 @@ class AIService:
         mode: str = "a2c",
         investment_style: str = "aggressive",
     ) -> Dict[str, Any]:
-        """
-        B 파트에서 실제로 사용할 진입점 함수.
-        """
         if mode not in ("a2c", "marl"):
             raise ValueError(f"Unsupported mode: {mode}")
 
-        # 일단 삼성전자 전용 모델이므로, symbol이 없으면 기본값 사용
         if symbol is None:
             symbol = "005930.KS"
 
-        # 최근 6개월을 기준으로 승률 계산
         start_dt = datetime.now() - timedelta(days=180)
         start_str = start_dt.strftime("%Y-%m-%d")
 
         try:
             if mode == "a2c":
                 today_pred = self.a2c.predict_today()
-                if today_pred is None:
-                    raise RuntimeError("A2C 오늘 예측에 실패했습니다.")
-
                 hist_signals = self.a2c.get_historical_signals(start_str)
 
                 action_id = int(today_pred["action"])
@@ -685,9 +734,6 @@ class AIService:
 
             else:  # mode == "marl"
                 today_pred = self.marl.predict_today()
-                if today_pred is None:
-                    raise RuntimeError("MARL 오늘 예측에 실패했습니다.")
-
                 hist_signals = self.marl.get_historical_signals(start_str)
 
                 action_id = int(today_pred["action"])
@@ -703,11 +749,8 @@ class AIService:
 
             xai_features = today_pred.get("xai_features", [])
 
-            # -----------------------------
-            # OpenAI GPT 기반 상세 설명 시도
-            # -----------------------------
+            # GPT 설명 시도
             try:
-                # XAI에서 넘어온 top features를 feature_importance 형태로 변환
                 feature_importance: Dict[str, float] = {}
                 for i, feat in enumerate(xai_features):
                     if isinstance(feat, dict):
@@ -728,19 +771,16 @@ class AIService:
                             importance_val = 0.0
                         feature_importance[fname] = importance_val
 
-                # GPT 서비스 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
-                    technical_indicators={}, # 이 부분에 XAI의 TOP3 지표를 넣으면 됨
+                    technical_indicators={},
                     feature_importance=feature_importance,
                 )
 
                 if isinstance(gpt_explanation, str) and gpt_explanation.strip():
-                    # GPT가 성공하면 [GPT] 태그로 덮어쓰기
                     explanation = "[GPT] " + gpt_explanation.strip()
 
             except Exception as gpt_err:
-                # GPT 호출 실패 시에는 기존 규칙 기반 설명 사용
                 print(f"[AIService] GPT explanation failed, fallback to rule-based: {gpt_err}")
 
             return {
@@ -750,8 +790,8 @@ class AIService:
                 "action": action_en,          # "BUY" / "SELL" / "HOLD"
                 "action_ko": action_ko,       # "매수" / "매도" / "관망"
                 "investment_style": investment_style,
-                "xai_features": xai_features, # Top-k XAI 지표
-                "explanation": explanation,   # ★ GPT 결과(or fallback)
+                "xai_features": xai_features,
+                "explanation": explanation,
             }
 
         except Exception as e:
