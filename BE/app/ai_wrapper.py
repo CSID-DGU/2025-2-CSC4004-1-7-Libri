@@ -665,22 +665,49 @@ class AIService:
             
             explanation = self._build_explanation(mode, action_id, investment_style)
 
+            # XAI 기반 raw 지표/중요도 딕셔너리 (항상 반환에 포함되도록 try 바깥에서 초기화)
+            feature_importance: Dict[str, float] = {}
+            technical_indicators: Dict[str, float] = {}
+
             # GPT 설명 시도
             try:
-                feature_importance = {}
-                technical_indicators = {}
-                
+                # XAI 결과에서:
+                #  - technical_indicators: 각 지표의 raw 값
+                #  - feature_importance  : 각 지표의 중요도(영향도)
                 for i, feat in enumerate(xai_features):
-                    if isinstance(feat, dict):
-                        fname = (feat.get("name") or feat.get("base") or feat.get("feature") or feat.get("indicator") or f"feature_{i}")
-                        val = float(feat.get("importance") or feat.get("value") or feat.get("score") or 0.0)
-                        feature_importance[fname] = val
-                        
-                        if feat.get("value") is not None:
-                            try:
-                                technical_indicators[fname] = float(feat.get("value"))
-                            except: pass
+                    if not isinstance(feat, dict):
+                        continue
 
+                    # 지표 이름 결정: name > base > feature > indicator > feature_i
+                    fname = (
+                        feat.get("name")
+                        or feat.get("base")
+                        or feat.get("feature")
+                        or feat.get("indicator")
+                        or f"feature_{i}"
+                    )
+
+                    # 중요도(영향도)는 importance / score / core 등의 필드에서만 읽음
+                    importance_val = (
+                        feat.get("importance")
+                        or feat.get("score")
+                        or feat.get("core")
+                    )
+                    if importance_val is not None:
+                        try:
+                            feature_importance[fname] = float(importance_val)
+                        except (TypeError, ValueError):
+                            pass
+
+                    # raw 값은 value 필드에서만 읽어서 technical_indicators에 저장
+                    raw_val = feat.get("value")
+                    if raw_val is not None:
+                        try:
+                            technical_indicators[fname] = float(raw_val)
+                        except (TypeError, ValueError):
+                            pass
+
+                # 팀원이 정의한 프롬프트 포맷을 사용하는 GPT 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
                     technical_indicators=technical_indicators,
@@ -701,6 +728,8 @@ class AIService:
                 "action_ko": action_ko,
                 "investment_style": investment_style,
                 "xai_features": xai_features,
+                "technical_indicators": technical_indicators,  # ⬅ raw 값 딕셔너리
+                "feature_importance": feature_importance,      # ⬅ 중요도 딕셔너리
                 "explanation": explanation,
             }
 
