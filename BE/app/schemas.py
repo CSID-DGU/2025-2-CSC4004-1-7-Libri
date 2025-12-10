@@ -92,7 +92,6 @@ class InvestmentRecordResponse(BaseModel):
     shares: int
     portfolio_value: float
     pnl: float | None = None
-    confidence_score: float
     gpt_explanation: str | None = None
 
     class Config:

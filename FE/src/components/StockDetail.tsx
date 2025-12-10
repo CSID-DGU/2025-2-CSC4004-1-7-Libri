@@ -394,6 +394,11 @@ interface Top3IndicatorCardProps {
 }
 
 function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorCardProps) {
+    const displayTitle =
+        (typeof indicator.title === "string" && indicator.title.trim().length > 0)
+            ? indicator.title.trim()
+            : indicator.id || "AI 주요 지표";
+
     return (
         <div
             className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
@@ -401,7 +406,7 @@ function Top3IndicatorCard({ indicator, crownColor = "#f5c451" }: Top3IndicatorC
         >
             <div className="flex items-center gap-[4px]">
                 <CrownIcon className="h-4 w-4" style={{ color: crownColor }} aria-hidden />
-                <span className="title-3 text-[#1fa9a4] tracking-[0.16px]">{indicator.title}</span>
+                <span className="title-3 text-[#1fa9a4] tracking-[0.16px]">{displayTitle}</span>
             </div>
             <p className="body-2 leading-6 text-[#151b26]" style={{ marginTop: "8px" }}>
                 {indicator.shortDescription}
@@ -513,37 +518,60 @@ function Top3AnalysisSection({
     investmentStyle,
     onIndicatorClick,
     xaiFeatures,
+    loading,
 }: {
     investmentStyle: InvestmentStyle;
     onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
     xaiFeatures: Array<{
-        base: string;
-        shap: number;
-        direction: string;
-        description: string;
+        base?: string;
+        name?: string;
+        indicator?: string;
+        shap?: number;
+        importance?: number;
+        direction?: string;
+        description?: string;
+        short_description?: string;
     }>;
+    loading: boolean;
 }) {
     const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
     
     // 백엔드에서 받은 XAI 데이터를 IndicatorInfo 형식으로 변환
-    const indicators: IndicatorInfo[] = xaiFeatures.length > 0 
+    const hasXaiData = xaiFeatures.length > 0;
+    const indicators: IndicatorInfo[] = hasXaiData
         ? xaiFeatures.slice(0, 3).map((feature, index) => {
-            const shapValue = typeof feature.shap === "number" ? feature.shap : 0;
+            const shapSource =
+                typeof feature.shap === "number"
+                    ? feature.shap
+                    : typeof feature.importance === "number"
+                        ? feature.importance
+                        : 0;
+            const shapValue = shapSource ?? 0;
             const impact = Math.abs(shapValue).toFixed(4);
             const shapText = shapValue.toFixed(6);
+            const rawTitle = feature.name ?? feature.base ?? feature.indicator ?? "";
+            const displayTitle =
+                (typeof rawTitle === "string" && rawTitle.trim().length > 0)
+                    ? rawTitle.trim()
+                    : `AI 주요 지표 ${index + 1}`;
+            const direction = feature.direction ?? (shapValue >= 0 ? "지지" : "방해");
+            const description =
+                feature.description ||
+                feature.short_description ||
+                `${displayTitle} 지표`;
 
             return {
                 id: `xai-${index}`,
-                title: feature.base,
+                title: displayTitle,
                 value: impact,
-                status: (feature.direction === "지지" ? "positive" : "negative") as "positive" | "negative" | "neutral",
-                shortDescription: `${feature.description} - AI가 이 지표를 ${feature.direction} 요인으로 판단했습니다. (영향도: ${impact})`,
-                detailedDescription: feature.description,
+                status: direction === "지지" ? "positive" : "negative",
+                shortDescription: `${description} - AI가 이 지표를 ${direction} 요인으로 판단했습니다. (영향도: ${impact})`,
+                detailedDescription: description,
                 interpretationPoints: [
-                    `이 지표는 AI 모델의 결정에 ${feature.direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
+                    `이 지표는 AI 모델의 결정에 ${direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
                     `SHAP 값: ${shapText}`,
-                    `${feature.direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
+                    `${direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
                 ],
             };
         })
@@ -579,10 +607,28 @@ function Top3AnalysisSection({
                 </button>
             </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
-                {indicators.map((indicator, index) => {
-                    const crownColor = rankColors[index] ?? rankColors[rankColors.length - 1];
-                    return <Top3IndicatorCard key={indicator.id} indicator={indicator} crownColor={crownColor} />;
-                })}
+                {loading ? (
+                    [1, 2, 3].map((idx) => (
+                        <div
+                            key={`top3-loading-${idx}`}
+                            className="w-full rounded-[16px] bg-[#f2f4f8] text-left"
+                            style={{ padding: "16px 20px 20px" }}
+                        >
+                            <div className="flex items-center gap-[4px]">
+                                <CrownIcon className="h-4 w-4" style={{ color: rankColors[idx - 1] ?? rankColors[rankColors.length - 1] }} aria-hidden />
+                                <span className="title-3 text-[#1fa9a4] tracking-[0.16px]">분석 중입니다...</span>
+                            </div>
+                            <p className="body-2 leading-6 text-[#151b26]" style={{ marginTop: "8px" }}>
+                                잠시만 기다려 주세요. AI가 TOP3 지표를 선정하고 있습니다.
+                            </p>
+                        </div>
+                    ))
+                ) : (
+                    indicators.map((indicator, index) => {
+                        const crownColor = rankColors[index] ?? rankColors[rankColors.length - 1];
+                        return <Top3IndicatorCard key={indicator.id} indicator={indicator} crownColor={crownColor} />;
+                    })
+                )}
             </div>
         </section>
     );
@@ -723,10 +769,14 @@ function StockDetailContent({
     loading: boolean;
     error: string | null;
     xaiFeatures: Array<{
-        base: string;
-        shap: number;
-        direction: string;
-        description: string;
+        base?: string;
+        name?: string;
+        indicator?: string;
+        shap?: number;
+        importance?: number;
+        direction?: string;
+        description?: string;
+        short_description?: string;
     }>;
     isBackendConnected: boolean;
 }) {
@@ -770,6 +820,7 @@ function StockDetailContent({
                         investmentStyle={investmentStyle}
                         onIndicatorClick={onIndicatorClick}
                         xaiFeatures={xaiFeatures}
+                        loading={loading}
                     />
                 )}
                 {activeTab === "analysis" && <IndicatorSection investmentStyle={investmentStyle} />}
@@ -792,10 +843,14 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
         aiExplanation: "데이터를 분석하고 있습니다...",
         indicators: {},
         xaiFeatures: [] as Array<{
-            base: string;
-            shap: number;
-            direction: string;
-            description: string;
+            base?: string;
+            name?: string;
+            indicator?: string;
+            shap?: number;
+            importance?: number;
+            direction?: string;
+            description?: string;
+            short_description?: string;
         }>,
     });
     const [loading, setLoading] = useState(true);
@@ -858,12 +913,17 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                     result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
                 }
 
+                const actionKey = typeof result.action === "string" ? result.action.toLowerCase() : "";
+                const recommendationText =
+                    actionKey ? translateSignal(actionKey) : (result.action_ko || translateSignal(""));
                 setAiData({
-                    recommendation: translateSignal(result.signal || result.action),
+                    recommendation: recommendationText,
                     aiExplanation:
-                        result.gpt_explanation || result.explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                        result.explanation ||
+                        result.gpt_explanation ||
+                        "현재 시장 상황을 종합적으로 분석한 결과입니다.",
                     indicators: result.technical_indicators || {},
-                xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
+                    xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
                 });
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);

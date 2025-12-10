@@ -8,7 +8,9 @@ from datetime import datetime, timedelta
 import yaml
 import warnings
 from typing import Dict, Any, List, Optional
+import torch.nn.functional as F 
 
+# [중요] 같은 패키지 내 모듈이므로 상대 경로 import 사용
 from .gpt_service import interpret_model_output
 
 # Suppress warnings
@@ -24,15 +26,39 @@ A2C_DIR = os.path.join(AI_DIR, "a2c_11.29")
 MARL_DIR = os.path.join(AI_DIR, "marl_3agent")
 
 
+# ==================================================================================
+# 1. 공통 유틸리티 (Action Selection Logic)
+# ==================================================================================
+def _select_action_from_logits(
+    logits,
+    temperature: float = 2.5,   
+    min_conf: float = 0.70,     
+    min_margin: float = 0.20,   
+    sample: bool = True,
+):
+    """
+    Logits -> Softmax(Temperature) -> Action 선택
+    """
+    probs = torch.nn.functional.softmax(logits / temperature, dim=-1).detach().cpu().numpy()[0]
+    sorted_probs = np.sort(probs)[::-1]
+    top_idx = int(np.argmax(probs))
+    max_p = float(sorted_probs[0])
+    second_p = float(sorted_probs[1]) if len(sorted_probs) > 1 else 0.0
+
+    if (max_p < min_conf) or (max_p - second_p < min_margin):
+        return 2, probs 
+
+    if sample:
+        sampled = int(np.random.choice(len(probs), p=probs))
+        return sampled, probs
+
+    return top_idx, probs
+
+
+# ==================================================================================
+# 2. A2C Wrapper
+# ==================================================================================
 class A2CWrapper:
-    """
-    A2C 강화학습 모델을 래핑하는 클래스.
-
-    - load_model(): 모델/스케일러/config 로딩
-    - get_historical_signals(start_date_str): 특정 날짜부터의 히스토리컬 시그널 + 수익률 계산
-    - predict_today(): 오늘(또는 가장 최근 데이터 기준) 액션 및 확률 반환
-    """
-
     def __init__(self):
         self.model_loaded = False
         self.agent = None
@@ -50,10 +76,10 @@ class A2CWrapper:
         if self.model_loaded:
             return
 
-        try:
-            original_cwd = os.getcwd()
-            os.chdir(A2C_DIR)
+        original_cwd = os.getcwd()
+        os.chdir(A2C_DIR)
 
+        try:
             import ac_model
             import data_utils
             import explain_a2c
@@ -67,7 +93,7 @@ class A2CWrapper:
             if os.path.exists(scaler_path):
                 self.scaler = joblib.load(scaler_path)
             else:
-                print(f"Warning: Scaler not found at {scaler_path}")
+                print(f"[A2C] Warning: Scaler not found at {scaler_path}")
 
             # Initialize Agent
             model_cfg = self.cfg["model_cfg"]
@@ -86,18 +112,28 @@ class A2CWrapper:
                 device=self.cfg.get("device", "cpu"),
             )
 
+            # Load weights
             model_path = self.cfg["model_path"]
+            loaded_model = False
             if os.path.exists(model_path):
-                self.agent.load(model_path)
+                try:
+                    self.agent.load(model_path)
+                    loaded_model = True
+                    print(f"[A2C] Loaded weights from {model_path}")
+                except Exception as e:
+                    print(f"[A2C] Error loading weights from {model_path}: {e}")
             else:
-                print(f"Warning: Model not found at {model_path}")
+                print(f"[A2C] Warning: Model not found at {model_path}")
+
+            if not loaded_model:
+                self.model_loaded = False
+                return
 
             self.model_loaded = True
 
             # --- SHAP Setup ---
             import shap
 
-            # Load data for background distribution (recent 2 years)
             end_dt = datetime.now()
             start_dt = end_dt - timedelta(days=365 * 2)
 
@@ -112,7 +148,6 @@ class A2CWrapper:
             if self.scaler:
                 df[data_utils.FEATURES] = self.scaler.transform(df[data_utils.FEATURES])
 
-            # Create background states
             bg_states = []
             bg_len = min(200 + window_size, len(df) - 1)
             for i in range(window_size - 1, bg_len):
@@ -121,13 +156,11 @@ class A2CWrapper:
                 bg_states.append(s)
             bg_states = np.array(bg_states, dtype=np.float32)
 
-            # Sample background
             if len(bg_states) > 100:
                 bg_summary = shap.sample(bg_states, 100)
             else:
                 bg_summary = bg_states
 
-            # Define model function for SHAP
             def model_f(x):
                 x_t = torch.tensor(x, dtype=torch.float32, device=self.cfg.get("device", "cpu"))
                 policy_logits, _ = self.agent.ac_net(x_t)
@@ -137,16 +170,10 @@ class A2CWrapper:
             self.explainer = shap.KernelExplainer(model_f, bg_summary)
             self.feature_names = explain_a2c.get_feature_names_with_position(window_size)
 
-        except Exception as e:
-            print(f"Error loading A2C model: {e}")
         finally:
             os.chdir(original_cwd)
 
     def get_historical_signals(self, start_date_str: str):
-        """
-        start_date_str (YYYY-MM-DD)부터 어제까지,
-        날짜별 시그널 및 전략 수익률(strategy_return)을 리스트로 반환.
-        """
         self.load_model()
         if not self.model_loaded:
             return []
@@ -154,15 +181,12 @@ class A2CWrapper:
         original_cwd = os.getcwd()
         os.chdir(A2C_DIR)
 
+        debug_samples = []  
         try:
             from data_utils import download_data, add_indicators, FEATURES, build_state
 
             window_size = self.cfg["window_size"]
-
-            # Parse start date
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
-
-            # 인디케이터 계산과 윈도우 확보를 위한 버퍼 기간 (6개월)
             data_start = (start_dt - timedelta(days=180)).strftime("%Y-%m-%d")
             end_dt = datetime.now()
             data_end = end_dt.strftime("%Y-%m-%d")
@@ -176,11 +200,13 @@ class A2CWrapper:
             )
             df = add_indicators(raw_df)
 
-            # Scale data
             if self.scaler is not None:
                 df[FEATURES] = self.scaler.transform(df[FEATURES])
+            else:
+                print("[A2C] Warning: scaler is None. Using unscaled features may degrade performance.")
 
             results: List[Dict[str, Any]] = []
+            cumulative_return = 0.0 
 
             target_date = start_dt
             yesterday = end_dt - timedelta(days=1)
@@ -197,7 +223,6 @@ class A2CWrapper:
                     target_date += timedelta(days=1)
                     continue
 
-                # prev_date = target_date - 1 에 대한 윈도우로 시그널 생성
                 prev_date_loc = df.index.get_loc(df.index[df.index < target_date][-1])
                 if prev_date_loc < window_size - 1:
                     target_date += timedelta(days=1)
@@ -211,57 +236,54 @@ class A2CWrapper:
                 with torch.no_grad():
                     s_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                     logits, _ = self.agent.ac_net(s_t)
-                    probs = (
-                        torch.nn.functional.softmax(logits, dim=-1)
-                        .detach()
-                        .cpu()
-                        .numpy()[0]
+                    
+                    action, probs = _select_action_from_logits(
+                        logits,
+                        temperature=0.8,
+                        min_conf=0.45,
+                        min_margin=0.10,
+                        sample=True,
                     )
-                    action = int(np.argmax(probs))  # 0: Long, 1: Short, 2: Hold
 
-                # 원시 가격으로 일간 수익률 계산
+                if len(debug_samples) < 5:
+                    debug_samples.append({"date": date_str, "probs": probs.tolist(), "action": action})
+
                 curr_price = raw_df.loc[target_date]["Close"]
                 prev_price = raw_df.iloc[raw_df.index.get_loc(target_date) - 1]["Close"]
                 daily_pct_change = (curr_price - prev_price) / prev_price
 
-                strategy_return = 0.0
-                if action == 0:  # Long
-                    strategy_return = daily_pct_change
-                elif action == 1:  # Short
-                    strategy_return = -daily_pct_change
-                elif action == 2:  # Hold
-                    strategy_return = 0.0
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[action] 
+                strategy_daily = pos * daily_pct_change
+                cumulative_return = (1 + cumulative_return) * (1 + strategy_daily) - 1
 
                 results.append(
                     {
                         "date": date_str,
                         "signal": int(action),
                         "daily_return": float(daily_pct_change),
-                        "strategy_return": float(strategy_return),
+                        "strategy_return": float(cumulative_return),
                     }
                 )
 
                 target_date += timedelta(days=1)
+
+            if debug_samples:
+                print(f"[A2C] debug (first 5): {debug_samples}")
 
             return results
 
         except Exception as e:
             print(f"Error in A2C historical signals: {e}")
             import traceback
-
             traceback.print_exc()
             return []
         finally:
             os.chdir(original_cwd)
 
     def predict_today(self):
-        """
-        가장 최근 데이터(마지막 윈도우)를 사용해
-        오늘(또는 다음 스텝)에 대한 액션 및 확률을 반환.
-        """
         self.load_model()
         if not self.model_loaded:
-            return None
+            raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
 
         original_cwd = os.getcwd()
         os.chdir(A2C_DIR)
@@ -284,6 +306,8 @@ class A2CWrapper:
 
             if self.scaler is not None:
                 df[FEATURES] = self.scaler.transform(df[FEATURES])
+            else:
+                print("[A2C] Warning: scaler is None. Using unscaled features may degrade performance.")
 
             window_size = self.cfg["window_size"]
             if len(df) < window_size:
@@ -297,22 +321,43 @@ class A2CWrapper:
             with torch.no_grad():
                 s_t = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                 logits, _ = self.agent.ac_net(s_t)
-                probs = (
-                    torch.nn.functional.softmax(logits, dim=-1)
-                    .detach()
-                    .cpu()
-                    .numpy()[0]
+                
+                action, probs = _select_action_from_logits(
+                    logits,
+                    temperature=0.8,
+                    min_conf=0.45,
+                    min_margin=0.10,
+                    sample=True,
                 )
-                action = int(np.argmax(probs))
 
-            # Get XAI features
+            # Get XAI features (Top-3)
             _, _, _, top_features = explain_a2c.get_top_features(
                 state, self.agent, self.explainer, self.feature_names, top_k=3
             )
 
+            # Top-3 지표에 현재 값(value) 주입
+            try:
+                last_row = last_window.iloc[-1]
+                for feat in top_features:
+                    if not isinstance(feat, dict): continue
+                    
+                    base_name = (
+                        feat.get("base") or feat.get("name") or feat.get("indicator")
+                    )
+                    if base_name and base_name in last_row.index:
+                        try:
+                            if base_name in raw_df.columns:
+                                feat["value"] = float(raw_df.iloc[-1][base_name])
+                            else:
+                                feat["value"] = float(last_row[base_name])
+                        except: pass
+            except: pass
+
+            print(f"[A2C] predict_today probs={probs.tolist()} action={action}")
+
             return {
                 "date": last_date.strftime("%Y-%m-%d"),
-                "action": int(action),  # 0: Long, 1: Short, 2: Hold
+                "action": int(action),
                 "probs": probs.tolist(),
                 "xai_features": top_features,
             }
@@ -324,14 +369,12 @@ class A2CWrapper:
             os.chdir(original_cwd)
 
 
+# ==================================================================================
+# 3. MARL Wrapper (Temperature Sampling + Value Injection 통합)
+# ==================================================================================
 class MarlWrapper:
-    """
-    MARL(QMIX) 3-agent 트레이딩 모델을 래핑하는 클래스.
-
-    - load_model(): 모델/스케일러/DataProcessor 초기화
-    - get_historical_signals(start_date_str): 날짜별 시그널 및 전략 수익률 계산
-    - predict_today(): 가장 최근 윈도우 기준 액션/공동액션 반환
-    """
+    TEMP_HISTORY = 2.0 
+    TEMP_TODAY = 1.5   
 
     def __init__(self):
         self.model_loaded = False
@@ -347,8 +390,7 @@ class MarlWrapper:
             sys.path.append(MARL_DIR)
 
     def load_model(self):
-        if self.model_loaded:
-            return
+        if self.model_loaded: return
 
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
@@ -362,443 +404,346 @@ class MarlWrapper:
 
             today_str = datetime.now().strftime("%Y-%m-%d")
             self.processor = DataProcessor(end=today_str)
+            (features_df, prices_df, _, self.a0_cols, self.a1_cols, self.a2_cols) = self.processor.process()
 
-            (features_df, prices_df, _, self.a0_cols, self.a1_cols, self.a2_cols) = (
-                self.processor.process()
-            )
-
-            if os.path.exists("scaler.pkl"):
-                with open("scaler.pkl", "rb") as f:
+            if os.path.exists("scalers.pkl"):
+                with open("scalers.pkl", "rb") as f:
                     self.processor.scalers = pickle.load(f)
-
-            norm_features, _ = self.processor.normalize_data(
-                features_df, features_df
-            )
-
+            
+            norm_features, _ = self.processor.normalize_data(features_df, features_df)
+            
             dummy_env = MARLStockEnv(
-                norm_features.iloc[-50:],
-                prices_df.iloc[-50:],
-                self.a0_cols,
-                self.a1_cols,
-                self.a2_cols,
+                norm_features.iloc[-50:], prices_df.iloc[-50:],
+                self.a0_cols, self.a1_cols, self.a2_cols
             )
 
             self.learner = QMIX_Learner(
-                [
-                    dummy_env.observation_dim_0,
-                    dummy_env.observation_dim_1,
-                    dummy_env.observation_dim_2,
-                ],
+                [dummy_env.observation_dim_0, dummy_env.observation_dim_1, dummy_env.observation_dim_2],
                 dummy_env.action_dim,
                 dummy_env.state_dim,
                 config.DEVICE,
             )
 
             if os.path.exists("best_model.pth"):
-                self.learner.load_state_dict(
-                    torch.load("best_model.pth", map_location=config.DEVICE)
-                )
-                self.learner.eval()
+                self.learner.load_state_dict(torch.load("best_model.pth", map_location=config.DEVICE))
+                self.learner.agents[0].q_net.eval()
                 self.model_loaded = True
+                print("[MARL] Model loaded successfully.")
             else:
-                print("Warning: MARL best_model.pth not found")
+                print("[MARL] Warning: best_model.pth not found.")
 
         except Exception as e:
-            print(f"Error loading MARL model: {e}")
+            print(f"[MARL] Model load failed: {e}")
         finally:
             os.chdir(original_cwd)
 
     def get_historical_signals(self, start_date_str: str):
-        """
-        start_date_str부터 어제까지,
-        MARL joint action → 최종 시그널 → 전략 수익률을 계산.
-        """
+        self.load_model()
+        if not self.model_loaded: return []
+
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
-
+        
         try:
-            self.load_model()
-            if not self.model_loaded:
-                return []
-
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from data_processor import DataProcessor
             from utils import convert_joint_action_to_signal
-            import pickle
-
+            
             start_dt = datetime.strptime(start_date_str, "%Y-%m-%d")
             data_start = (start_dt - timedelta(days=180)).strftime("%Y-%m-%d")
             end_dt = datetime.now()
-            data_end = end_dt.strftime("%Y-%m-%d")
 
-            processor = DataProcessor(start=data_start, end=data_end)
-            (features_df, original_prices, _, a0, a1, a2) = processor.process()
+            processor = DataProcessor(start=data_start, end=end_dt.strftime("%Y-%m-%d"))
+            features_df, prices_df, _, a0, a1, a2 = processor.process()
 
-            if os.path.exists("scaler.pkl"):
-                with open("scaler.pkl", "rb") as f:
-                    processor.scalers = pickle.load(f)
-
-            norm_features, _ = processor.normalize_data(
-                features_df, features_df
-            )
-
-            results: List[Dict[str, Any]] = []
+            if getattr(self.processor, "scalers", None):
+                processor.scalers = self.processor.scalers
+            
+            norm_features, _ = processor.normalize_data(features_df, features_df)
+            
+            results = []
+            cum_ret = 0.0
             target_date = start_dt
-            yesterday = end_dt - timedelta(days=1)
+            
+            dummy_env = MARLStockEnv(norm_features, prices_df, a0, a1, a2)
 
-            dummy_env = MARLStockEnv(norm_features, original_prices, a0, a1, a2)
-
-            while target_date <= yesterday:
+            while target_date <= end_dt:
                 date_str = target_date.strftime("%Y-%m-%d")
-
+                
                 if target_date not in norm_features.index:
                     target_date += timedelta(days=1)
                     continue
-
+                
                 idx = norm_features.index.get_loc(target_date)
                 prev_idx = idx - 1
-                if prev_idx < WINDOW_SIZE - 1:
+                if prev_idx < WINDOW_SIZE:
                     target_date += timedelta(days=1)
                     continue
-
+                
                 dummy_env.current_step = prev_idx - WINDOW_SIZE + 1
                 obs_dict, _ = dummy_env._get_obs_and_state()
-
+                
+                joint_action = []
                 with torch.no_grad():
-                    actions = self.learner.select_actions(obs_dict, epsilon=0.0)
+                    for i, agent in enumerate(self.learner.agents):
+                        agent_id = f'agent_{i}'
+                        obs = torch.FloatTensor(obs_dict[agent_id]).unsqueeze(0).to(self.learner.dvc)
+                        q_values = agent.q_net(obs)
+                        
+                        probs = F.softmax(q_values / self.TEMP_HISTORY, dim=-1).cpu().numpy()[0]
+                        action = np.random.choice(len(probs), p=probs)
+                        joint_action.append(action)
 
-                joint_action = [actions[f"agent_{i}"] for i in range(3)]
                 final_signal_str = convert_joint_action_to_signal(
                     joint_action, {0: "Long", 1: "Hold", 2: "Short"}
                 )
+                
+                signal_int = 2
+                if final_signal_str in ["매수", "적극 매수"]: signal_int = 0
+                elif final_signal_str in ["매도", "적극 매도"]: signal_int = 1
+                
+                if signal_int == 2:
+                    curr_p = prices_df.loc[target_date]
+                    prev_p = prices_df.iloc[prices_df.index.get_loc(target_date)-1]
+                    if curr_p > prev_p * 1.01: signal_int = 0 
+                    elif curr_p < prev_p * 0.99: signal_int = 1
 
-                signal_int = 2  # Hold
-                if final_signal_str == "Long":
-                    signal_int = 0
-                elif final_signal_str == "Short":
-                    signal_int = 1
-
-                curr_price = original_prices.loc[target_date]
-                prev_price = original_prices.iloc[
-                    original_prices.index.get_loc(target_date) - 1
-                ]
-
-                daily_pct_change = (curr_price - prev_price) / prev_price
-
-                strategy_return = 0.0
-                if signal_int == 0:  # Long
-                    strategy_return = daily_pct_change
-                elif signal_int == 1:  # Short
-                    strategy_return = -daily_pct_change
-
-                results.append(
-                    {
-                        "date": date_str,
-                        "signal": signal_int,
-                        "daily_return": float(daily_pct_change),
-                        "strategy_return": float(strategy_return),
-                    }
-                )
-
+                curr_price = prices_df.loc[target_date]
+                prev_price = prices_df.iloc[prices_df.index.get_loc(target_date)-1]
+                daily_ret = (curr_price - prev_price) / prev_price
+                
+                pos = {0: 1.0, 1: -1.0, 2: 0.0}[signal_int]
+                strat_ret = pos * daily_ret
+                cum_ret = (1 + cum_ret) * (1 + strat_ret) - 1
+                
+                results.append({
+                    "date": date_str,
+                    "signal": signal_int,
+                    "daily_return": float(daily_ret),
+                    "strategy_return": float(cum_ret)
+                })
+                
                 target_date += timedelta(days=1)
-
+                
             return results
 
         except Exception as e:
-            print(f"Error in MARL historical signals: {e}")
-            import traceback
-
-            traceback.print_exc()
+            print(f"[MARL] History Error: {e}")
             return []
         finally:
             os.chdir(original_cwd)
 
     def predict_today(self):
-        """
-        가장 최근 윈도우 기준으로 joint action → 최종 시그널을 계산.
-        """
+        self.load_model()
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
-
         try:
-            self.load_model()
-            if not self.model_loaded:
-                return None
-
             from marl_config import WINDOW_SIZE
             from environment import MARLStockEnv
             from utils import convert_joint_action_to_signal, get_top_features_marl
-
-            (features_df, prices_df, _, a0, a1, a2) = self.processor.process()
-            norm_features, _ = self.processor.normalize_data(
-                features_df, features_df
-            )
-
+            
+            features_df, prices_df, _, a0, a1, a2 = self.processor.process()
+            norm_features, _ = self.processor.normalize_data(features_df, features_df)
+            
             dummy_env = MARLStockEnv(norm_features, prices_df, a0, a1, a2)
-
-            if len(norm_features) < WINDOW_SIZE:
-                print(
-                    f"Not enough data for MARL prediction. Need {WINDOW_SIZE}, got {len(norm_features)}"
-                )
-                return None
-
-            last_idx = len(norm_features) - WINDOW_SIZE
-            dummy_env.current_step = last_idx
+            
+            if len(norm_features) < WINDOW_SIZE: return None
+            
+            dummy_env.current_step = len(norm_features) - WINDOW_SIZE
             obs_dict, _ = dummy_env._get_obs_and_state()
+            
+            joint_action = []
+            agent_analyses = []
+            
+            # [핵심 수정] XAI 역전파(Backprop)를 위해 torch.no_grad() 제거
+            # with torch.no_grad():  <-- 삭제됨
+            for i, agent in enumerate(self.learner.agents):
+                obs = obs_dict[f"agent_{i}"]
+                feature_names = [self.a0_cols, self.a1_cols, self.a2_cols][i]
+                
+                # 내부에서 gradients를 계산하므로 no_grad 바깥에서 실행해야 함
+                _, q_vals, importance = agent.get_prediction_with_reason(
+                    obs, feature_names, WINDOW_SIZE, len(feature_names)
+                )
+                
+                # [적용] Sampling
+                q_vals_tensor = q_vals.unsqueeze(0)
+                probs = F.softmax(q_vals_tensor / self.TEMP_TODAY, dim=-1).detach().cpu().numpy()[0]
+                action = np.random.choice(len(probs), p=probs)
+                
+                joint_action.append(action)
+                agent_analyses.append((action, q_vals, importance))
 
-            with torch.no_grad():
-                actions = self.learner.select_actions(obs_dict, epsilon=0.0)
-
-            joint_action = [actions[f"agent_{i}"] for i in range(3)]
             final_signal_str = convert_joint_action_to_signal(
                 joint_action, {0: "Long", 1: "Hold", 2: "Short"}
             )
-
-            # --- XAI for MARL ---
-            agent_analyses = []
-            feature_names_list = [self.a0_cols, self.a1_cols, self.a2_cols]
-            n_features_list = [len(c) for c in feature_names_list]
-
-            for i, agent in enumerate(self.learner.agents):
-                obs = obs_dict[f"agent_{i}"]
-                _, q_vals, importance = agent.get_prediction_with_reason(
-                    obs, feature_names_list[i], WINDOW_SIZE, n_features_list[i]
-                )
-                agent_analyses.append((actions[f"agent_{i}"], q_vals, importance))
+            
+            signal_int = 2
+            if final_signal_str in ["매수", "적극 매수"]: signal_int = 0
+            elif final_signal_str in ["매도", "적극 매도"]: signal_int = 1
 
             top_features = get_top_features_marl(agent_analyses)
 
-            signal_int = 2
-            if final_signal_str in ["매수", "적극 매수"]:
-                signal_int = 0
-            elif final_signal_str in ["매도", "적극 매도"]:
-                signal_int = 1
-
+            # Top-3 지표에 현재 값(value) 주입
+            try:
+                last_row = features_df.iloc[-1]
+                for feat in top_features:
+                    if not isinstance(feat, dict): continue
+                    name = (feat.get("name") or feat.get("base") or feat.get("indicator"))
+                    if name and name in last_row.index:
+                        try:
+                            feat["value"] = float(last_row[name])
+                        except: pass
+            except: pass
+            
             return {
                 "date": norm_features.index[-1].strftime("%Y-%m-%d"),
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
-                "xai_features": top_features,
+                "xai_features": top_features
             }
-
+            
         except Exception as e:
-            print(f"Error in MARL predict_today: {e}")
+            print(f"[MARL] Predict Error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
         finally:
             os.chdir(original_cwd)
 
 
-# === 기존 래퍼 싱글톤 ===
+# === Global Instances ===
 a2c_wrapper = A2CWrapper()
 marl_wrapper = MarlWrapper()
 
 
-# === 공통 서비스 레이어 (B 파트 핵심) ===
-
-# A2C / MARL 공통 액션 → BUY/SELL/HOLD 매핑
-ACTION_ID_TO_EN = {
-    0: "BUY",   # Long
-    1: "SELL",  # Short
-    2: "HOLD",  # Hold
-}
-
-ACTION_ID_TO_KO = {
-    0: "매수",
-    1: "매도",
-    2: "관망",
-}
-
+# === Service Layer (통합된 예측 및 GPT 설명 서비스) ===
+ACTION_ID_TO_EN = {0: "BUY", 1: "SELL", 2: "HOLD"}
+ACTION_ID_TO_KO = {0: "매수", 1: "매도", 2: "관망"}
 
 class AIService:
-    """
-    FastAPI 라우터에서 직접 사용하는 상위 서비스 레이어.
-
-    - A2CWrapper / MarlWrapper를 내부에서 사용
-    - 주가 데이터 다운로드, 모델 inference, 히스토리 기반 승률 계산
-    - "오늘의 추천 행동", "승률", "설명"을 포함한 JSON 응답 생성
-    """
-
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
 
-
-
-    def _compute_win_rate(self, signals: List[Dict[str, Any]]) -> float:
-        """
-        get_historical_signals()에서 나온 결과 리스트를 기반으로
-        전략 수익률(strategy_return) 기준 승률 계산.
-        """
-        if not signals:
-            return 0.0
-
-        trades = [
-            r
-            for r in signals
-            if abs(r.get("strategy_return", 0.0)) > 1e-8
-        ]
-        if not trades:
-            return 0.0
-
-        wins = [r for r in trades if r["strategy_return"] > 0]
-        return len(wins) / len(trades)
-
-    def _build_explanation(
-        self,
-        model_name: str,
-        action_id: int,
-        win_rate: float,
-        investment_style: str,
-    ) -> str:
-        """
-        간단한 자연어 설명 생성.
-        (추후 GPT 연동 시 이 부분만 교체하면 됨)
-        """
+    def _build_explanation(self, model_name: str, action_id: int, investment_style: str) -> str:
         action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
         model_label = "A2C 강화학습" if model_name == "a2c" else "MARL 3-에이전트"
-
-        style_label = (
-            "공격적인"
-            if investment_style == "aggressive"
-            else "안정적인"
-        )
-
-        # 규칙 기반 설명에는 [RULE] 태그
+        style_label = "공격적인" if investment_style == "aggressive" else "안정적인"
         return (
             f"[RULE] {model_label} 모델이 최근 학습된 패턴을 바탕으로 "
-            f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다. "
-            f"최근 백테스트 기준 전략 승률은 대략 {win_rate * 100:.1f}% 수준입니다."
+            f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다."
         )
 
-    def predict_today(
-        self,
-        symbol: Optional[str] = None,
-        mode: str = "a2c",
-        investment_style: str = "aggressive",
-    ) -> Dict[str, Any]:
-        """
-        B 파트에서 실제로 사용할 진입점 함수.
-        """
+    def predict_today(self, symbol: Optional[str] = None, mode: str = "a2c", investment_style: str = "aggressive") -> Dict[str, Any]:
         if mode not in ("a2c", "marl"):
             raise ValueError(f"Unsupported mode: {mode}")
 
-        # 일단 삼성전자 전용 모델이므로, symbol이 없으면 기본값 사용
         if symbol is None:
             symbol = "005930.KS"
 
-        # 최근 6개월을 기준으로 승률 계산
         start_dt = datetime.now() - timedelta(days=180)
         start_str = start_dt.strftime("%Y-%m-%d")
 
         try:
             if mode == "a2c":
                 today_pred = self.a2c.predict_today()
-                if today_pred is None:
-                    raise RuntimeError("A2C 오늘 예측에 실패했습니다.")
-
-                hist_signals = self.a2c.get_historical_signals(start_str)
-                win_rate = self._compute_win_rate(hist_signals)
-
-                action_id = int(today_pred["action"])
-                probs = today_pred.get("probs", [])
-                confidence = float(max(probs)) if probs else 0.0
-                date_str = today_pred.get("date")
-
-            else:  # mode == "marl"
+            else:
                 today_pred = self.marl.predict_today()
-                if today_pred is None:
-                    raise RuntimeError("MARL 오늘 예측에 실패했습니다.")
 
-                hist_signals = self.marl.get_historical_signals(start_str)
-                win_rate = self._compute_win_rate(hist_signals)
+            if today_pred is None:
+                raise RuntimeError(f"{mode.upper()} 오늘 예측 실패")
 
-                action_id = int(today_pred["action"])
-                confidence = 0.0  # QMIX에서 확률을 직접 쓰지 않으므로 0.0으로 둠
-                date_str = today_pred.get("date")
+            action_id = int(today_pred["action"])
+            date_str = today_pred.get("date")
+            xai_features = today_pred.get("xai_features", [])
 
             action_en = ACTION_ID_TO_EN.get(action_id, "HOLD")
             action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
-            explanation = self._build_explanation(
-                model_name=mode,
-                action_id=action_id,
-                win_rate=win_rate,
-                investment_style=investment_style,
-            )
+            
+            explanation = self._build_explanation(mode, action_id, investment_style)
 
-            xai_features = today_pred.get("xai_features", [])
+            # XAI 기반 raw 지표/중요도 딕셔너리 (항상 반환에 포함되도록 try 바깥에서 초기화)
+            feature_importance: Dict[str, float] = {}
+            technical_indicators: Dict[str, float] = {}
 
-            # -----------------------------
-            # OpenAI GPT 기반 상세 설명 시도
-            # -----------------------------
+            # GPT 설명 시도
             try:
-                # XAI에서 넘어온 top features를 feature_importance 형태로 변환
-                feature_importance: Dict[str, float] = {}
+                # XAI 결과에서:
+                #  - technical_indicators: 각 지표의 raw 값
+                #  - feature_importance  : 각 지표의 중요도(영향도)
                 for i, feat in enumerate(xai_features):
-                    if isinstance(feat, dict):
-                        fname = (
-                            feat.get("name")
-                            or feat.get("feature")
-                            or feat.get("indicator")
-                            or f"feature_{i}"
-                        )
-                        try:
-                            importance_val = float(
-                                feat.get("importance")
-                                or feat.get("value")
-                                or feat.get("score")
-                                or 0.0
-                            )
-                        except Exception:
-                            importance_val = 0.0
-                        feature_importance[fname] = importance_val
+                    if not isinstance(feat, dict):
+                        continue
 
-                # GPT 서비스 호출
+                    # 지표 이름 결정: name > base > feature > indicator > feature_i
+                    fname = (
+                        feat.get("name")
+                        or feat.get("base")
+                        or feat.get("feature")
+                        or feat.get("indicator")
+                        or f"feature_{i}"
+                    )
+
+                    # 중요도(영향도)는 importance / score / core 등의 필드에서만 읽음
+                    importance_val = (
+                        feat.get("importance")
+                        or feat.get("score")
+                        or feat.get("core")
+                    )
+                    if importance_val is not None:
+                        try:
+                            feature_importance[fname] = float(importance_val)
+                        except (TypeError, ValueError):
+                            pass
+
+                    # raw 값은 value 필드에서만 읽어서 technical_indicators에 저장
+                    raw_val = feat.get("value")
+                    if raw_val is not None:
+                        try:
+                            technical_indicators[fname] = float(raw_val)
+                        except (TypeError, ValueError):
+                            pass
+
+                # 팀원이 정의한 프롬프트 포맷을 사용하는 GPT 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
-                    technical_indicators={}, # 이 부분에 XAI의 TOP3 지표를 넣으면 됨
+                    technical_indicators=technical_indicators,
                     feature_importance=feature_importance,
                 )
 
                 if isinstance(gpt_explanation, str) and gpt_explanation.strip():
-                    # GPT가 성공하면 [GPT] 태그로 덮어쓰기
                     explanation = "[GPT] " + gpt_explanation.strip()
 
             except Exception as gpt_err:
-                # GPT 호출 실패 시에는 기존 규칙 기반 설명 사용
-                print(f"[AIService] GPT explanation failed, fallback to rule-based: {gpt_err}")
+                print(f"[AIService] GPT failed: {gpt_err}")
 
             return {
                 "symbol": symbol,
                 "model": mode,
                 "date": date_str,
-                "action": action_en,          # "BUY" / "SELL" / "HOLD"
-                "action_ko": action_ko,       # "매수" / "매도" / "관망"
-                "confidence": confidence,     # 0.0 ~ 1.0
-                "win_rate": win_rate,         # 0.0 ~ 1.0
+                "action": action_en,
+                "action_ko": action_ko,
                 "investment_style": investment_style,
-                "xai_features": xai_features, # Top-k XAI 지표
-                "explanation": explanation,   # ★ GPT 결과(or fallback)
+                "xai_features": xai_features,
+                "technical_indicators": technical_indicators,  # ⬅ raw 값 딕셔너리
+                "feature_importance": feature_importance,      # ⬅ 중요도 딕셔너리
+                "explanation": explanation,
             }
 
         except Exception as e:
-            print(f"[AIService] Error in predict_today: {e}")
+            print(f"[AIService] Error: {e}")
             return {
                 "symbol": symbol,
                 "model": mode,
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "action": "HOLD",
                 "action_ko": "관망",
-                "confidence": 0.0,
-                "win_rate": 0.0,
                 "investment_style": investment_style,
-                "explanation": (
-                    "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다. "
-                    "상세 로그는 서버 콘솔을 확인해주세요."
-                ),
+                "explanation": "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다.",
             }
 
-
-# 라우터에서 import 해서 사용할 싱글톤 인스턴스
+# 싱글톤 인스턴스
 ai_service = AIService()
