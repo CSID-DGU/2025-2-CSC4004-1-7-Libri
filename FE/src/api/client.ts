@@ -55,10 +55,11 @@ export const api = {
   predictByInvestmentStyle: (symbol: string, investmentStyle: 'aggressive' | 'conservative') => {
     // 공격형 -> a2c, 안정형 -> marl
     const mode = investmentStyle === 'aggressive' ? 'a2c' : 'marl';
-    return apiCall(`/ai/predict/${mode}`, {
+    return apiCall(`/ai/predict`, {
       method: 'POST',
       body: { 
         symbol,
+        mode,
         investment_style: investmentStyle 
       },
     });
