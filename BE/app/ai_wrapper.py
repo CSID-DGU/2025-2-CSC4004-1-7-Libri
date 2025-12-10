@@ -367,7 +367,7 @@ class A2CWrapper:
             print(f"[A2C] predict_today probs={probs.tolist()} action={action}")
 
             result = {
-                "date": last_date.strftime("%Y-%m-%d"),
+                "date": datetime.now().strftime("%Y-%m-%d"),
                 "action": int(action),
                 "probs": probs.tolist(),
                 "xai_features": top_features,
@@ -625,7 +625,7 @@ class MarlWrapper:
             except: pass
             
             result = {
-                "date": norm_features.index[-1].strftime("%Y-%m-%d"),
+                "date": datetime.now().strftime("%Y-%m-%d"),
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
