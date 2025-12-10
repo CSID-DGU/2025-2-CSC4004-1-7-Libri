@@ -19,6 +19,7 @@ import {
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
 
+
 export type TabType = "top3" | "analysis" | "trading";
 
 interface IndicatorGuideInfo {
@@ -40,7 +41,7 @@ const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {}
 
 // 거래 내역 계산 함수
 function calculateTradingHistory(
-    aiHistory: Array<{ date: string; signal: number; daily_return: number; strategy_return: number }>,
+    aiHistory: Array<{ date: string; signal: number; daily_return?: number; strategy_return?: number }>,
     stockHistory: Array<{ date: string; open: number; high: number; low: number; close: number }>,
     initialCapital: number
 ): DayTrading[] {
@@ -65,7 +66,7 @@ function calculateTradingHistory(
         // signal: 0 = BUY (Long), 1 = SELL (Short), 2 = HOLD
         if (signal.signal === 0) {
             // 매수 시그널
-            const buyPrice = priceData.low; // 당일 최저가로 매수
+            const buyPrice = priceData.low || priceData.close || priceData.open; // 당일 최저가로 매수
             const maxShares = Math.floor(cash / buyPrice);
 
             if (maxShares > 0) {
@@ -102,7 +103,7 @@ function calculateTradingHistory(
         } else if (signal.signal === 1) {
             // 매도 시그널
             if (shares > 0) {
-                const sellPrice = priceData.high; // 당일 최고가로 매도
+                const sellPrice = priceData.high || priceData.close || priceData.open; // 당일 최고가로 매도
                 const sellShares = shares;
                 const revenue = sellShares * sellPrice;
                 const profit = revenue - (avgPrice * sellShares);
@@ -201,15 +202,22 @@ function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
                 // 백엔드에서 최근 30일 주가 데이터 가져오기
                 const historyData = await api.getStockHistory(stockSymbol, 30);
                 
+                if (!historyData || historyData.length === 0) {
+                    throw new Error("Stock data is empty");
+                }
+                
                 // 데이터를 차트 형식으로 변환
                 const chartData = historyData
-                    .map((item: any) => ({
-                        time: Math.floor(new Date(item.date).getTime() / 1000) as any,
-                        value: item.close || 0,
-                    }))
-                    .sort((a: any, b: any) => a.time - b.time);
+                    .map((item: any) => {
+                        const dateStr = item.date.split('T')[0]; // YYYY-MM-DD 형식으로 변환
+                        return {
+                            time: dateStr as any,
+                            value: item.close || 0,
+                        };
+                    })
+                    .sort((a: any, b: any) => a.time.localeCompare(b.time));
 
-                if (chartInstanceRef.current && seriesRef.current) {
+                if (chartInstanceRef.current && seriesRef.current && chartData.length > 0) {
                     seriesRef.current.setData(chartData);
                     chartInstanceRef.current.timeScale().fitContent();
                 }
@@ -306,7 +314,7 @@ function RecommendationCard({
                 style={{ padding: "20px", gap: "20px" }}
             >
                 <div className="flex flex-col gap-1">
-                    <p className="label-2 text-[#6b6e74] tracking-[0.2px]">오늘의 추천 행동</p>
+                    <p className="label-2 text-[#6b6e74] tracking-[0.2px]">추천 행동</p>
                     <p className="text-[36px] tracking-[1.2px] text-[#1fa9a4]" style={{ fontWeight: 700 }}>
                         {recommendation}
                     </p>
@@ -338,7 +346,7 @@ const TAB_META: {
 }[] = [
     { id: "top3", label: "TOP3 분석" },
     { id: "analysis", label: "지표 분석" },
-    { id: "trading", label: "AI 거래 내역" },
+    { id: "trading", label: "AI 가상 거래" },
 ];
 
 function DetailTabs({ activeTab, onSelect }: { activeTab: TabType; onSelect: (tab: TabType) => void }) {
@@ -480,6 +488,27 @@ function getTop3ReferenceLabel(now = new Date()) {
     return `${month}.${day}`;
 }
 
+function formatDateForDisplay(dateStr: string) {
+    // YYYY-MM-DD 형식의 날짜를 받아서 표시용으로 변환
+    const today = new Date();
+    const targetDate = new Date(dateStr);
+    
+    // 오늘 날짜와 비교
+    const todayStr = today.toISOString().split('T')[0];
+    const yesterdayStr = new Date(today.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    if (dateStr === todayStr) {
+        return "오늘";
+    } else if (dateStr === yesterdayStr) {
+        return "어제";
+    } else {
+        // n월 n일 형식으로 표시
+        const month = targetDate.getMonth() + 1;
+        const day = targetDate.getDate();
+        return `${month}월 ${day}일`;
+    }
+}
+
 function Top3AnalysisSection({
     investmentStyle,
     onIndicatorClick,
@@ -606,7 +635,7 @@ function TradingHistorySection({
     history: DayTrading[];
 }) {
     const referenceLabel = getTop3ReferenceLabel();
-    const entries = history
+        const entries = history
         .map((day) => ({
             ...day,
             trades: day.trades.filter((trade) => trade.type !== "hold"),
@@ -621,12 +650,12 @@ function TradingHistorySection({
                     className="flex items-center gap-[2px]"
                     onClick={() =>
                         onGuideClick({
-                            title: "AI 거래 내역 안내",
-                            description: "AI 거래 내역은 실제 매매가 아닌 모델 기반 시뮬레이션입니다.",
+                            title: "AI 가상 거래 안내",
+                            description: "AI 가상 거래는 실제 매매가 아닌 모델 기반 시뮬레이션입니다.",
                             fullDescription:
                                 "리브리 모델이 추천 전략대로 거래했다면 어떤 수익을 기대할 수 있는지를 가정한 결과입니다. 실제 매매가 아니며, 사용자의 초기 투자금과 시장 데이터에 기반해 산출한 모의 성과입니다.",
                             interpretationPoints: [
-                                "AI 거래 내역은 실제로 실행된 거래가 아닙니다.",
+                                "AI 가상 거래는 실제로 실행된 거래가 아닙니다.",
                                 "사용자의 초기 투자금으로 리브리 추천을 따른 경우의 가상 수익입니다.",
                                 "참고용 정보이며 매매 판단은 사용자 책임 하에 진행해야 합니다.",
                                 "",
@@ -638,7 +667,7 @@ function TradingHistorySection({
                         })
                     }
                 >
-                    <span>AI 거래 내역 안내</span>
+                    <span>AI 가상 거래 안내</span>
                     <InfoIcon className="h-[16px] w-[16px] text-[#b0b4bd]" aria-hidden />
                 </button>
             </div>
@@ -652,7 +681,7 @@ function TradingHistorySection({
                                 className="body-3"
                                 style={{ color: "var(--achromatic-500)", marginTop: "16px", marginBottom: "8px" }}
                             >
-                                {day.date}
+                                {formatDateForDisplay(day.date)}
                             </p>
                             <div className="flex flex-col gap-3">
                                 {day.trades.map((trade, index) => (
@@ -680,6 +709,7 @@ function StockDetailContent({
     loading,
     error,
     xaiFeatures,
+    isBackendConnected,
 }: {
     stockName: string;
     onBack: () => void;
@@ -698,6 +728,7 @@ function StockDetailContent({
         direction: string;
         description: string;
     }>;
+    isBackendConnected: boolean;
 }) {
     return (
         <div
@@ -715,6 +746,22 @@ function StockDetailContent({
                     loading={loading}
                     error={error}
                 />
+                {!isBackendConnected && (
+                    <div className="w-full" style={{ paddingInline: "20px" }}>
+                        <div className="rounded-[12px] bg-[#fff3cd] border border-[#ffeaa7] p-3">
+                            <p className="body-3 text-[#856404] mb-2">
+                                ⚠️ 백엔드 서버에 연결할 수 없어 Mock 데이터를 표시하고 있습니다.
+                            </p>
+                            <p className="body-3 text-[#856404] text-xs">
+                                실제 데이터를 보려면 백엔드 서버를 실행해주세요:<br/>
+                                <code className="bg-[#f8f9fa] px-1 rounded">cd BE && uvicorn app.main:app --reload --port 8000</code>
+                            </p>
+                            <p className="body-3 text-[#856404] text-xs mt-1">
+                                OpenAI API 키도 BE/.env 파일에 설정해주세요.
+                            </p>
+                        </div>
+                    </div>
+                )}
                 <div style={{ marginTop: "30px", paddingInline: "20px", marginBottom: "16px" }}>
                     <DetailTabs activeTab={activeTab} onSelect={onTabChange} />
                 </div>
@@ -754,6 +801,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
+    const [isBackendConnected, setIsBackendConnected] = useState(false);
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -801,9 +849,11 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 try {
                     // 백엔드 API 호출
                     await api.health();
+                    setIsBackendConnected(true);
                     result = await api.predictByInvestmentStyle(symbol, investmentStyleEn);
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
+                    setIsBackendConnected(false);
                     // Mock 데이터 폴백
                     result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
                 }
@@ -865,7 +915,21 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 const priceSeries = generateMockPriceSeries(stockName);
                 const actionPlan = generateRandomActions(stockName, priceSeries.length || 5);
                 const { history } = simulateTradingHistory(initialInvestment, priceSeries, actionPlan);
-                setTradingHistory(history);
+                
+                // Mock 데이터의 날짜를 실제 날짜 형식으로 변환
+                const today = new Date();
+                const updatedHistory = history.map((day, index) => {
+                    const date = new Date(today);
+                    date.setDate(date.getDate() - index);
+                    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD 형식
+                    
+                    return {
+                        ...day,
+                        date: dateStr,
+                    };
+                });
+                
+                setTradingHistory(updatedHistory);
             }
         };
 
@@ -887,6 +951,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 loading={loading}
                 error={error}
                 xaiFeatures={aiData.xaiFeatures}
+                isBackendConnected={isBackendConnected}
             />
 
             <IndicatorModal indicator={selectedIndicator} onClose={() => setSelectedIndicator(null)} />

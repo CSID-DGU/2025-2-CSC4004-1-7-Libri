@@ -17,34 +17,42 @@ async function apiCall(endpoint: string, options: RequestOptions = {}) {
     headers['X-API-Key'] = API_KEY;
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    method: options.method || 'GET',
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
 
-  if (!response.ok) {
-    let errorMessage = `API Error: ${response.status} ${response.statusText}`;
-    let errorBody: any = null;
-    try {
-      errorBody = await response.json();
-      if (typeof errorBody === "string") {
-        errorMessage = errorBody;
-      } else if (errorBody?.detail) {
-        errorMessage = Array.isArray(errorBody.detail)
-          ? errorBody.detail.map((d: any) => d.msg || d.detail || "").join(", ")
-          : errorBody.detail;
+    if (!response.ok) {
+      let errorMessage = `API Error: ${response.status} ${response.statusText}`;
+      let errorBody: any = null;
+      try {
+        errorBody = await response.json();
+        if (typeof errorBody === "string") {
+          errorMessage = errorBody;
+        } else if (errorBody?.detail) {
+          errorMessage = Array.isArray(errorBody.detail)
+            ? errorBody.detail.map((d: any) => d.msg || d.detail || "").join(", ")
+            : errorBody.detail;
+        }
+      } catch {
+        // ignore JSON parse errors and keep default message
       }
-    } catch {
-      // ignore JSON parse errors and keep default message
+      const error = new Error(errorMessage);
+      (error as any).status = response.status;
+      (error as any).body = errorBody;
+      throw error;
     }
-    const error = new Error(errorMessage);
-    (error as any).status = response.status;
-    (error as any).body = errorBody;
+
+    return response.json();
+  } catch (error) {
+    // 네트워크 오류나 연결 실패 시 더 명확한 메시지 제공
+    if (error instanceof TypeError && error.message.includes('fetch')) {
+      throw new Error(`백엔드 서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요. (${API_URL})`);
+    }
     throw error;
   }
-
-  return response.json();
 }
 
 export const api = {
@@ -121,4 +129,19 @@ export const api = {
   // AI 거래 히스토리 조회
   getAIHistory: (modelType: 'a2c' | 'marl', startDate: string) =>
     apiCall(`/ai/history?model_type=${modelType}&start_date=${startDate}`),
+
+  // 온보딩 완료
+  completeOnboarding: (userId: number, onboardingData: {
+    initial_investment: number;
+    investment_style: string;
+    holdings: Array<{
+      symbol: string;
+      quantity: number;
+      avg_price: number;
+    }>;
+  }) =>
+    apiCall(`/users/${userId}/onboarding`, {
+      method: 'POST',
+      body: onboardingData,
+    }),
 };

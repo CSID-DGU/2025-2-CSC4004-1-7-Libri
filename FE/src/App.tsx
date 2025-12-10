@@ -418,16 +418,38 @@ export default function App() {
         }
 
         try {
-            await persistHoldingFromForm(state.userId, state.onboardingForm);
-
             const backendStyle = mapDisplayStyleToBackend(style);
             if (!backendStyle) {
                 completeLocalOnboarding(selectedStyle);
                 return;
             }
 
-            await api.updateInvestmentStyle(state.userId, backendStyle);
+            // 온보딩 데이터 준비
+            const symbol = resolveStockSymbol(state.onboardingForm.stockName);
+            const quantity = parsePositiveInteger(state.onboardingForm.quantity);
+            const avgPrice = parsePositiveInteger(state.onboardingForm.price);
+            const initialInvestment = parsePositiveInteger(state.initialInvestment);
+
+            if (!symbol || quantity === null || avgPrice === null || initialInvestment === null) {
+                console.error("온보딩 데이터가 유효하지 않습니다.");
+                completeLocalOnboarding(selectedStyle);
+                return;
+            }
+
+            // 백엔드 온보딩 완료 API 호출
+            await api.completeOnboarding(state.userId, {
+                initial_investment: initialInvestment,
+                investment_style: backendStyle,
+                holdings: [{
+                    symbol,
+                    quantity,
+                    avg_price: avgPrice,
+                }],
+            });
+
+            // 백엔드에서 최신 데이터 가져오기
             await hydrateStateFromBackend(state.userId);
+            dispatch({ type: "SET_ONBOARDING_STATUS", completed: true });
             goToPage("home");
         } catch (error) {
             console.error("온보딩 완료 처리 중 오류 발생:", error);

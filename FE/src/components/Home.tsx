@@ -13,6 +13,7 @@ import {
     generateRandomActions,
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
+import { calculateTradingProfit } from "@/utils/tradingCalculator";
 
 interface Stock {
     name: string;
@@ -292,6 +293,7 @@ function HomeContent({
     onStockClick,
     onOpenSettings,
     stockPerformance,
+    isBackendConnected,
 }: {
     initialInvestment: number;
     aiTradeProfit: number;
@@ -301,6 +303,7 @@ function HomeContent({
     onStockClick: (stock: string) => void;
     onOpenSettings: () => void;
     stockPerformance: StockPerformanceMap;
+    isBackendConnected: boolean;
 }) {
     return (
         <div className="absolute content-stretch flex flex-col gap-[12px] items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] pb-16">
@@ -315,6 +318,19 @@ function HomeContent({
                         aiTradeProfitRate={aiTradeProfitRate}
                     />
                 </div>
+                {!isBackendConnected && (
+                    <div className="w-full" style={{ paddingInline: "20px", marginBottom: "20px" }}>
+                        <div className="rounded-[12px] bg-[#fff3cd] border border-[#ffeaa7] p-3">
+                            <p className="body-3 text-[#856404] mb-2">
+                                ⚠️ 백엔드 서버에 연결할 수 없어 Mock 데이터를 표시하고 있습니다.
+                            </p>
+                            <p className="body-3 text-[#856404] text-xs">
+                                실제 데이터를 보려면 백엔드 서버를 실행해주세요:<br/>
+                                <code className="bg-[#f8f9fa] px-1 rounded">cd BE && uvicorn app.main:app --reload --port 8000</code>
+                            </p>
+                        </div>
+                    </div>
+                )}
                 <div className="w-full" style={{ paddingInline: "20px" }}>
                     <StockSection
                         stocks={stocks}
@@ -339,9 +355,9 @@ export default function Home({
     const [currentView, setCurrentView] = useState<"list" | "detail">("list");
     const [selectedStockName, setSelectedStockName] = useState("");
     const [stockPerformance, setStockPerformance] = useState<StockPerformanceMap>({});
-    const [loading, setLoading] = useState(true);
     const [portfolioStocks, setPortfolioStocks] = useState<Stock[]>([]);
     const [portfolioInitialInvestment, setPortfolioInitialInvestment] = useState<number | null>(null);
+    const [isBackendConnected, setIsBackendConnected] = useState(true);
 
     useEffect(() => {
         if (!userId) return;
@@ -415,33 +431,41 @@ export default function Home({
     useEffect(() => {
         const loadStockPerformance = async () => {
             try {
-                setLoading(true);
                 
                 const performanceMap: StockPerformanceMap = {};
 
-                // 각 종목에 대해 현재가와 수익률 계산
+                // 각 종목에 대해 AI 거래 내역 기반 수익률 계산
                 for (const stock of effectiveStocks.length > 0 ? effectiveStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }]) {
                     try {
                         const symbol = resolveStockSymbol(stock.name) || "005930.KS";
                         
-                        // 백엔드에서 최근 주가 데이터 가져오기
-                        const historyData = await api.getStockHistory(symbol, 2);
+                        // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
+                        const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
+
+                        // 30일 전부터 데이터 가져오기
+                        const startDate = new Date();
+                        startDate.setDate(startDate.getDate() - 30);
+                        const startDateStr = startDate.toISOString().split('T')[0];
+
+                        // AI 히스토리와 주가 데이터 가져오기
+                        const [aiHistory, stockHistory] = await Promise.all([
+                            api.getAIHistory(modelType, startDateStr),
+                            api.getStockHistory(symbol, 30)
+                        ]);
+
+                        // 백엔드 연결 성공
+                        setIsBackendConnected(true);
+
+                        // 거래 내역에서 총 수익 계산
+                        const tradingResult = calculateTradingProfit(aiHistory, stockHistory, effectiveInitialInvestment);
                         
-                        if (historyData && historyData.length >= 2) {
-                            const todayPrice = historyData[historyData.length - 1].close;
-                            const yesterdayPrice = historyData[historyData.length - 2].close;
-                            
-                            // 간단한 수익률 계산 (실제로는 더 복잡한 로직 필요)
-                            const profit = (todayPrice - yesterdayPrice) * stock.quantity;
-                            const profitRate = ((todayPrice - yesterdayPrice) / yesterdayPrice) * 100;
-                            
-                            performanceMap[stock.name] = { profit, profitRate };
-                        } else {
-                            // 데이터가 부족하면 Mock 사용
-                            performanceMap[stock.name] = generateMockPerformance(stock.name);
-                        }
+                        performanceMap[stock.name] = { 
+                            profit: tradingResult.totalProfit, 
+                            profitRate: tradingResult.profitRate 
+                        };
                     } catch (error) {
                         console.warn(`${stock.name} 데이터 로딩 실패, Mock 데이터 사용:`, error);
+                        setIsBackendConnected(false);
                         performanceMap[stock.name] = generateMockPerformance(stock.name);
                     }
                 }
@@ -456,8 +480,6 @@ export default function Home({
                     mockPerformance[stock.name] = generateMockPerformance(stock.name);
                 });
                 setStockPerformance(mockPerformance);
-            } finally {
-                setLoading(false);
             }
         };
 
@@ -503,6 +525,7 @@ export default function Home({
                 onStockClick={handleStockClick}
                 onOpenSettings={onOpenSettings}
                 stockPerformance={stockPerformance}
+                isBackendConnected={isBackendConnected}
             />
         </div>
     );
