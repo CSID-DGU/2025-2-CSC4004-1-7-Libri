@@ -66,6 +66,11 @@ class A2CWrapper:
         self.scaler = None
         self.explainer = None
         self.feature_names = None
+
+        # Caching
+        self.cached_prediction = None
+        self.cached_date = None
+
         self._setup_path()
 
     def _setup_path(self):
@@ -281,6 +286,12 @@ class A2CWrapper:
             os.chdir(original_cwd)
 
     def predict_today(self):
+        # 1. Check Cache
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if self.cached_prediction is not None and self.cached_date == today_str:
+            print(f"[A2C] Using cached prediction for {today_str}")
+            return self.cached_prediction
+
         self.load_model()
         if not self.model_loaded:
             raise RuntimeError("A2C model is not loaded. Check model_path in config.yaml.")
@@ -355,12 +366,18 @@ class A2CWrapper:
 
             print(f"[A2C] predict_today probs={probs.tolist()} action={action}")
 
-            return {
+            result = {
                 "date": last_date.strftime("%Y-%m-%d"),
                 "action": int(action),
                 "probs": probs.tolist(),
                 "xai_features": top_features,
             }
+            
+            # Update Cache
+            self.cached_prediction = result
+            self.cached_date = today_str
+            
+            return result
 
         except Exception as e:
             print(f"Error in A2C predict_today: {e}")
@@ -383,6 +400,11 @@ class MarlWrapper:
         self.a0_cols = None
         self.a1_cols = None
         self.a2_cols = None
+
+        # Caching
+        self.cached_prediction = None
+        self.cached_date = None
+
         self._setup_path()
 
     def _setup_path(self):
@@ -535,6 +557,12 @@ class MarlWrapper:
             os.chdir(original_cwd)
 
     def predict_today(self):
+        # 1. 이전에 예측한 데이터가 있는지 확인
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        if self.cached_prediction is not None and self.cached_date == today_str:
+            print(f"[MARL] Using cached prediction for {today_str}")
+            return self.cached_prediction
+
         self.load_model()
         original_cwd = os.getcwd()
         os.chdir(MARL_DIR)
@@ -557,7 +585,6 @@ class MarlWrapper:
             agent_analyses = []
             
             # [핵심 수정] XAI 역전파(Backprop)를 위해 torch.no_grad() 제거
-            # with torch.no_grad():  <-- 삭제됨
             for i, agent in enumerate(self.learner.agents):
                 obs = obs_dict[f"agent_{i}"]
                 feature_names = [self.a0_cols, self.a1_cols, self.a2_cols][i]
@@ -597,13 +624,19 @@ class MarlWrapper:
                         except: pass
             except: pass
             
-            return {
+            result = {
                 "date": norm_features.index[-1].strftime("%Y-%m-%d"),
                 "action": signal_int,
                 "action_str": final_signal_str,
                 "joint_action": joint_action,
                 "xai_features": top_features
             }
+
+            # 예측 기록 업데이트
+            self.cached_prediction = result
+            self.cached_date = today_str
+
+            return result
             
         except Exception as e:
             print(f"[MARL] Predict Error: {e}")
@@ -627,6 +660,8 @@ class AIService:
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
+        # 예측 결과 캐싱
+        self.prediction_cache = {}
 
     def _build_explanation(self, model_name: str, action_id: int, investment_style: str) -> str:
         action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
@@ -643,6 +678,14 @@ class AIService:
 
         if symbol is None:
             symbol = "005930.KS"
+
+        # 1. 캐시 확인
+        today_str = datetime.now().strftime("%Y-%m-%d")  # 날짜 기준
+        cache_key = (today_str, symbol, mode, investment_style)
+
+        if cache_key in self.prediction_cache: # 예측 기록 있는지 확인
+            print(f"[AIService] Using cached result for {cache_key}")
+            return self.prediction_cache[cache_key]
 
         start_dt = datetime.now() - timedelta(days=180)
         start_str = start_dt.strftime("%Y-%m-%d")
@@ -707,7 +750,7 @@ class AIService:
                         except (TypeError, ValueError):
                             pass
 
-                # 팀원이 정의한 프롬프트 포맷을 사용하는 GPT 호출
+                # GPT API 호출
                 gpt_explanation = interpret_model_output(
                     signal=action_en,
                     technical_indicators=technical_indicators,
@@ -720,7 +763,7 @@ class AIService:
             except Exception as gpt_err:
                 print(f"[AIService] GPT failed: {gpt_err}")
 
-            return {
+            result = {
                 "symbol": symbol,
                 "model": mode,
                 "date": date_str,
@@ -733,6 +776,9 @@ class AIService:
                 "explanation": explanation,
             }
 
+            # 캐시 업데이트
+            self.prediction_cache[cache_key] = result
+            return result
         except Exception as e:
             print(f"[AIService] Error: {e}")
             return {
