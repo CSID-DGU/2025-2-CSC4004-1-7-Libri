@@ -38,6 +38,59 @@ interface StockDetailProps {
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
 const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
+const AI_PREDICTION_CACHE_KEY = "libri_ai_prediction_cache";
+
+type XAIReference = {
+    base?: string;
+    name?: string;
+    indicator?: string;
+    shap?: number;
+    importance?: number;
+    direction?: string;
+    description?: string;
+    short_description?: string;
+};
+
+interface PredictionData {
+    recommendation: string;
+    aiExplanation: string;
+    indicators: Record<string, number>;
+    xaiFeatures: XAIReference[];
+}
+
+interface CachedPredictionEntry {
+    data: PredictionData;
+    storedAt: string;
+}
+
+function loadPredictionCache(): Record<string, CachedPredictionEntry> {
+    try {
+        const raw = localStorage.getItem(AI_PREDICTION_CACHE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function savePredictionCacheEntry(key: string, data: PredictionData) {
+    try {
+        const cache = loadPredictionCache();
+        cache[key] = { data, storedAt: new Date().toISOString() };
+        localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+        // localStorage access might fail; ignore to avoid crashing UI
+    }
+}
+
+function isErrorPrediction(data: PredictionData | undefined): boolean {
+    if (!data) return true;
+    const explanation = (data.aiExplanation || "").toLowerCase();
+    if (explanation.includes("오류") || explanation.includes("error")) return true;
+    if (!data.xaiFeatures || data.xaiFeatures.length === 0) return true;
+    return false;
+}
 
 // 거래 내역 계산 함수
 function calculateTradingHistory(
@@ -478,7 +531,7 @@ function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyl
     );
 }
 
-function getTop3ReferenceLabel(now = new Date()) {
+function getReferenceDate(now = new Date()) {
     const cutoffHour = 20;
     const cutoffMinute = 30;
     const afterCutoff =
@@ -488,6 +541,15 @@ function getTop3ReferenceLabel(now = new Date()) {
     if (!afterCutoff) {
         referenceDate.setDate(referenceDate.getDate() - 1);
     }
+    return referenceDate;
+}
+
+function getReferenceDateISO(now = new Date()) {
+    return getReferenceDate(now).toISOString().split("T")[0];
+}
+
+function getTop3ReferenceLabel(now = new Date()) {
+    const referenceDate = getReferenceDate(now);
     const month = String(referenceDate.getMonth() + 1).padStart(2, "0");
     const day = String(referenceDate.getDate()).padStart(2, "0");
     return `${month}.${day}`;
@@ -522,16 +584,7 @@ function Top3AnalysisSection({
 }: {
     investmentStyle: InvestmentStyle;
     onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
-    xaiFeatures: Array<{
-        base?: string;
-        name?: string;
-        indicator?: string;
-        shap?: number;
-        importance?: number;
-        direction?: string;
-        description?: string;
-        short_description?: string;
-    }>;
+    xaiFeatures: XAIReference[];
     loading: boolean;
 }) {
     const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
@@ -768,16 +821,7 @@ function StockDetailContent({
     tradingHistory: DayTrading[];
     loading: boolean;
     error: string | null;
-    xaiFeatures: Array<{
-        base?: string;
-        name?: string;
-        indicator?: string;
-        shap?: number;
-        importance?: number;
-        direction?: string;
-        description?: string;
-        short_description?: string;
-    }>;
+    xaiFeatures: XAIReference[];
     isBackendConnected: boolean;
 }) {
     return (
@@ -838,20 +882,11 @@ function StockDetailContent({
 export default function StockDetail({ stockName, investmentStyle, initialInvestment, onBack }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("top3");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
-    const [aiData, setAiData] = useState({
+    const [aiData, setAiData] = useState<PredictionData>({
         recommendation: "분석 중...",
         aiExplanation: "데이터를 분석하고 있습니다...",
         indicators: {},
-        xaiFeatures: [] as Array<{
-            base?: string;
-            name?: string;
-            indicator?: string;
-            shap?: number;
-            importance?: number;
-            direction?: string;
-            description?: string;
-            short_description?: string;
-        }>,
+        xaiFeatures: [],
     });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -900,7 +935,23 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 };
                 const investmentStyleEn = styleMap[investmentStyle] || "aggressive";
 
+                const referenceDateISO = getReferenceDateISO();
+                const cacheKey = `${referenceDateISO}_${symbol}_${investmentStyleEn}`;
+                const cache = loadPredictionCache();
+                const cachedEntry = cache?.[cacheKey];
+                if (cachedEntry?.data && !isErrorPrediction(cachedEntry.data)) {
+                    setAiData(cachedEntry.data);
+                    setIsBackendConnected(true);
+                    setLoading(false);
+                    return;
+                } else if (cachedEntry?.data && isErrorPrediction(cachedEntry.data)) {
+                    delete cache[cacheKey];
+                    localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
+                }
+
                 let result;
+                let usedMockData = false;
+                let encounteredError = false;
                 try {
                     // 백엔드 API 호출
                     await api.health();
@@ -910,32 +961,43 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
                     setIsBackendConnected(false);
                     // Mock 데이터 폴백
+                    usedMockData = true;
                     result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
                 }
 
                 const actionKey = typeof result.action === "string" ? result.action.toLowerCase() : "";
                 const recommendationText =
                     actionKey ? translateSignal(actionKey) : (result.action_ko || translateSignal(""));
-                setAiData({
+                const explanationText =
+                    result.explanation ||
+                    result.gpt_explanation ||
+                    "현재 시장 상황을 종합적으로 분석한 결과입니다.";
+                const nextData: PredictionData = {
                     recommendation: recommendationText,
-                    aiExplanation:
-                        result.explanation ||
-                        result.gpt_explanation ||
-                        "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                    aiExplanation: explanationText,
                     indicators: result.technical_indicators || {},
                     xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
-                });
+                };
+                if (isErrorPrediction(nextData)) {
+                    encounteredError = true;
+                }
+                setAiData(nextData);
+                if (!usedMockData && !encounteredError) {
+                    savePredictionCacheEntry(cacheKey, nextData);
+                }
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
                 // 최종 폴백
                 const fallback = getMockPredictionResult("model3");
-                setAiData({
+                const fallbackData: PredictionData = {
                     recommendation: translateSignal(fallback.signal),
                     aiExplanation: fallback.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
                     indicators: {},
                     xaiFeatures: [],
-                });
+                };
+                setAiData(fallbackData);
+                setIsBackendConnected(false);
             } finally {
                 setLoading(false);
             }
