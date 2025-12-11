@@ -284,7 +284,7 @@ function StockSection({
     return (
         <section className="flex flex-col mt-[28px]">
             <h2 className="title-3 tracking-[0.16px] text-[#151b26]" style={{ margin: 0, marginBottom: "10px" }}>
-                종목별 상세</h2>
+                내 종목</h2>
             <div className="mt-[10px] flex flex-col">
                 <div style={{ marginBottom: "12px" }}>
                     <StockList
