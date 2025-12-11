@@ -333,27 +333,6 @@ function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
         };
 
         const loadChartData = async () => {
-            let backendConnected = false;
-            
-            try {
-                // 백엔드 연결 상태 먼저 확인
-                await api.health();
-                backendConnected = true;
-                console.log("백엔드 연결 성공");
-            } catch (healthError) {
-                console.warn("백엔드 연결 실패:", healthError);
-                backendConnected = false;
-            }
-            
-            if (!backendConnected) {
-                console.log("백엔드 연결 실패로 Mock 데이터 사용");
-                if (chartInstanceRef.current && seriesRef.current) {
-                    seriesRef.current.setData(generateMockData());
-                    chartInstanceRef.current.timeScale().fitContent();
-                }
-                return;
-            }
-            
             try {
                 // 종목 코드 변환 (삼성전자 -> 005930.KS)
                 const symbol = resolveStockSymbol(stockSymbol) || "005930.KS";
@@ -662,10 +641,9 @@ function getReferenceDate(now = new Date()) {
     return referenceDate;
 }
 
-// 임시로 비활성화된 함수 (디버깅용)
-// function getReferenceDateISO(now = new Date()) {
-//     return getReferenceDate(now).toISOString().split("T")[0];
-// }
+function getReferenceDateISO(now = new Date()) {
+    return getReferenceDate(now).toISOString().split("T")[0];
+}
 
 function getTop3ReferenceLabel(now = new Date()) {
     const referenceDate = getReferenceDate(now);
@@ -950,7 +928,7 @@ function StockDetailContent({
                     loading={loading}
                     error={error}
                 />
-                {!isBackendConnected && (
+                {!loading && !isBackendConnected && (
                     <div className="w-full" style={{ paddingInline: "20px" }}>
                         <div className="rounded-[12px] bg-[#fff3cd] border border-[#ffeaa7] p-3">
                             <p className="body-3 text-[#856404] mb-2">
@@ -1054,24 +1032,8 @@ export default function StockDetail({
                 let result;
                 try {
                     // 백엔드 API 호출
-                    await api.health();
-                    setIsBackendConnected(true);
                     result = await api.predictByInvestmentStyle(symbol, investmentStyleEn);
-                    
-                    // 백엔드 응답 디버깅
-                    console.log("백엔드 API 응답:", result);
-                    console.log("XAI Features:", result.xai_features);
-                    if (result.xai_features && result.xai_features.length > 0) {
-                        result.xai_features.forEach((feature: any, index: number) => {
-                            console.log(`Feature ${index}:`, {
-                                name: feature.name,
-                                explain: feature.explain,
-                                explanation: feature.explanation,
-                                description: feature.description,
-                                short_description: feature.short_description
-                            });
-                        });
-                    }
+                    setIsBackendConnected(true);
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
                     setIsBackendConnected(false);
@@ -1094,14 +1056,6 @@ export default function StockDetail({
                 };
                 
                 // xaiFeatures 저장 후 확인
-                console.log("저장된 xaiFeatures:", nextData.xaiFeatures);
-                nextData.xaiFeatures.forEach((feature, idx) => {
-                    console.log(`저장된 Feature ${idx}:`, {
-                        name: feature.name,
-                        explain: feature.explain,
-                        hasExplain: !!feature.explain
-                    });
-                });
                 setAiData(nextData);
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
