@@ -39,6 +39,7 @@ interface StockDetailProps {
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
 const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
 const AI_PREDICTION_CACHE_KEY = "libri_ai_prediction_cache";
+const AI_TRADING_HISTORY_CACHE_KEY = "libri_ai_trading_history_cache";
 
 type XAIReference = {
     base?: string;
@@ -63,6 +64,11 @@ interface CachedPredictionEntry {
     storedAt: string;
 }
 
+interface CachedTradingHistoryEntry {
+    data: DayTrading[];
+    storedAt: string;
+}
+
 function loadPredictionCache(): Record<string, CachedPredictionEntry> {
     try {
         const raw = localStorage.getItem(AI_PREDICTION_CACHE_KEY);
@@ -81,6 +87,27 @@ function savePredictionCacheEntry(key: string, data: PredictionData) {
         localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
     } catch {
         // localStorage access might fail; ignore to avoid crashing UI
+    }
+}
+
+function loadTradingHistoryCache(): Record<string, CachedTradingHistoryEntry> {
+    try {
+        const raw = localStorage.getItem(AI_TRADING_HISTORY_CACHE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function saveTradingHistoryCacheEntry(key: string, data: DayTrading[]) {
+    try {
+        const cache = loadTradingHistoryCache();
+        cache[key] = { data, storedAt: new Date().toISOString() };
+        localStorage.setItem(AI_TRADING_HISTORY_CACHE_KEY, JSON.stringify(cache));
+    } catch {
+        // Ignore storage errors to keep UI responsive
     }
 }
 
@@ -550,9 +577,10 @@ function getReferenceDateISO(now = new Date()) {
 
 function getTop3ReferenceLabel(now = new Date()) {
     const referenceDate = getReferenceDate(now);
+    const year = referenceDate.getFullYear();
     const month = String(referenceDate.getMonth() + 1).padStart(2, "0");
     const day = String(referenceDate.getDate()).padStart(2, "0");
-    return `${month}.${day}`;
+    return `${year}.${month}.${day}`;
 }
 
 function formatDateForDisplay(dateStr: string) {
@@ -649,7 +677,7 @@ function Top3AnalysisSection({
                 className="flex items-center justify-between body-3"
                 style={{ color: "var(--achromatic-500)" }}
             >
-                <span className="body-3">{referenceLabel} 20:30분 기준</span>
+                <span className="body-3">{referenceLabel} (20:30 기준)</span>
                 <button
                     type="button"
                     className="flex items-center gap-[2px]"
@@ -688,17 +716,6 @@ function Top3AnalysisSection({
 }
 
 function TradeItem({ trade }: { trade: SimulatedTrade }) {
-    if (trade.type === "hold") {
-        return (
-            <div className="rounded-2xl bg-[#f8f9fb] p-4">
-                <p className="title-3 text-[#151b26]">거래 내역 변화 없음</p>
-                <p className="mt-1 body-3 text-[#6b6e74]">
-                    {trade.reason ?? "리브리 전략에 따라 변동이 없습니다."}
-                </p>
-            </div>
-        );
-    }
-
     const isSell = trade.type === "sell";
 
     return (
@@ -734,41 +751,17 @@ function TradingHistorySection({
     history: DayTrading[];
 }) {
     const referenceLabel = getTop3ReferenceLabel();
-        const entries = history
+    const entries = history
         .map((day) => ({
             ...day,
             trades: day.trades.filter((trade) => trade.type !== "hold"),
         }))
-        .filter((day) => day.trades.length > 0);
+        .filter((day) => day.trades.length > 0)
+        .sort((a, b) => b.date.localeCompare(a.date));
     return (
         <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
             <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
-                <span className="body-3">{referenceLabel} 20:30분 기준</span>
-                <button
-                    type="button"
-                    className="flex items-center gap-[2px]"
-                    onClick={() =>
-                        onGuideClick({
-                            title: "AI 가상 거래 안내",
-                            description: "AI 가상 거래는 실제 매매가 아닌 모델 기반 시뮬레이션입니다.",
-                            fullDescription:
-                                "리브리 모델이 추천 전략대로 거래했다면 어떤 수익을 기대할 수 있는지를 가정한 결과입니다. 실제 매매가 아니며, 사용자의 초기 투자금과 시장 데이터에 기반해 산출한 모의 성과입니다.",
-                            interpretationPoints: [
-                                "AI 가상 거래는 실제로 실행된 거래가 아닙니다.",
-                                "사용자의 초기 투자금으로 리브리 추천을 따른 경우의 가상 수익입니다.",
-                                "참고용 정보이며 매매 판단은 사용자 책임 하에 진행해야 합니다.",
-                                "",
-                                "AI 거래 내역은 어떻게 추가되나요?",
-                                "- 리브리가 '보유'를 추천한 경우엔 '거래 내역 변화 없음'이 표시됩니다.",
-                                "- 리브리가 '매수'를 추천한 경우엔 해당 일 최저가(최초 형성 시각) 기준으로 보유 현금이 허용하는 한 매수합니다.",
-                                "- 리브리가 '매도'를 추천한 경우엔 해당 일 최고가(최초 형성 시각) 기준으로 보유 수량 전량을 매도합니다.",
-                            ],
-                        })
-                    }
-                >
-                    <span>AI 가상 거래 안내</span>
-                    <InfoIcon className="h-[16px] w-[16px] text-[#b0b4bd]" aria-hidden />
-                </button>
+                <span className="body-3">{referenceLabel} (20:30 기준)</span>
             </div>
             <div className="flex flex-col gap-6">
                 {entries.length === 0 ? (
@@ -1017,10 +1010,17 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
                 const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
 
-                // 30일 전부터 데이터 가져오기
-                const startDate = new Date();
-                startDate.setDate(startDate.getDate() - 30);
-                const startDateStr = startDate.toISOString().split('T')[0];
+                // 12월 1일부터의 데이터만 요청 (요구사항에 따라 고정 날짜 사용)
+                const startDateStr = "2025-12-01";
+                const referenceDateISO = getReferenceDateISO();
+                const cacheKey = `${referenceDateISO}_${symbol}_${modelType}_${initialInvestment}`;
+
+                const tradingCache = loadTradingHistoryCache();
+                const cachedEntry = tradingCache?.[cacheKey];
+                if (cachedEntry?.data?.length) {
+                    setTradingHistory(cachedEntry.data);
+                    return;
+                }
 
                 // AI 히스토리와 주가 데이터 동시 가져오기
                 const [aiHistory, stockHistory] = await Promise.all([
@@ -1031,6 +1031,7 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 // 거래 내역 계산
                 const history = calculateTradingHistory(aiHistory, stockHistory, initialInvestment);
                 setTradingHistory(history);
+                saveTradingHistoryCacheEntry(cacheKey, history);
             } catch (error) {
                 console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
                 // 폴백: Mock 데이터 사용
