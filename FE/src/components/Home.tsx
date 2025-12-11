@@ -109,7 +109,10 @@ function InvestmentState({
                     <span className="body-1 text-[#1fa9a4]" style={{ fontWeight: 700 }}>
                         {formatNumber(initialInvestment)}
                     </span>
-                    으로 총 수익률{" "}
+                    으로{" "}
+                </p>
+                <p className="body-1">
+                    총 수익률{" "}
                     <span className="body-1" style={{ color: aiProfitInfo.color, fontWeight: 700 }}>
                         {aiProfitInfo.text}
                     </span>
@@ -179,7 +182,7 @@ function StockCard({
 }) {
     const { text, color } = formatProfitText(aiProfit, aiProfitRate);
     const displayValue = latestPrice !== undefined
-        ? (stock.quantity ?? 0) * latestPrice
+        ? Math.round((stock.quantity ?? 0) * latestPrice)
         : stock.totalValue;
 
     return (
@@ -429,7 +432,7 @@ export default function Home({
         };
     }, [userId]);
 
-    const effectiveStocks = portfolioStocks.length ? portfolioStocks : stocks;
+    const effectiveStocks = stocks;
     const [adjustedStocks, summaryStockName] = useMemo(() => {
         const adjusted = effectiveStocks.map((stock) => {
             const summary = simulatedHoldings[stock.name];
@@ -450,8 +453,7 @@ export default function Home({
         const firstName = adjusted[0]?.name || "삼성전자";
         return [adjusted, firstName] as const;
     }, [effectiveStocks, simulatedHoldings]);
-    const effectiveInitialInvestment =
-        portfolioInitialInvestment !== null ? portfolioInitialInvestment : initialInvestment;
+    const effectiveInitialInvestment = Number(initialInvestment) || 0;
     
     // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
     const generateMockPerformance = useMemo(() => {
@@ -547,8 +549,8 @@ export default function Home({
     }, [adjustedStocks, summaryStockName, effectiveInitialInvestment, generateMockPerformance, simulatedHoldings]);
 
     const aiTradeProfit = useMemo(
-        () => Object.values(stockPerformance).reduce((acc, { profit }) => acc + profit, 0),
-        [stockPerformance],
+        () => Object.values(simulatedHoldings).reduce((acc, summary) => acc + (summary?.realizedProfit ?? 0), 0),
+        [simulatedHoldings],
     );
     const aiTradeProfitRate =
         effectiveInitialInvestment > 0 ? (aiTradeProfit / effectiveInitialInvestment) * 100 : 0;
