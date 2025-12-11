@@ -51,11 +51,9 @@ class AIPredictRequest(BaseModel):
 
 class AIPredictResponse(BaseModel):
     """
-    백엔드_api.pdf 7~8페이지에 맞춰:
-    - 오늘의 추천 행동
-    - 승률
-    - 설명
-    등을 포함하는 응답 포맷
+    수정된 응답 포맷:
+    - short_description 제거됨 (불필요)
+    - xai_features 내부에 'explain' 필드가 포함되어 전달됨
     """
     symbol: str
     model: str
@@ -63,8 +61,8 @@ class AIPredictResponse(BaseModel):
     action: str           # "BUY" / "SELL" / "HOLD"
     action_ko: str        # "매수" / "매도" / "관망"
     investment_style: str
-    xai_features: List[dict] = []  # Top 3 중요 지표 (XAI)
-    explanation: str
+    xai_features: List[Dict[str, Any]] = []  # 지표별 설명('explain')이 포함된 리스트
+    explanation: str      # 전체 종합 코멘트
 
 
 # --------------------------------
@@ -133,26 +131,6 @@ def get_today_signal(
 def predict(req: AIPredictRequest):
     """
     프론트엔드에서 실제로 사용할 메인 AI API.
-
-    - Request Body:
-        {
-          "symbol": "005930.KS",
-          "mode": "a2c",
-          "investment_style": "aggressive"
-        }
-
-    - Response:
-        {
-          "symbol": "005930.KS",
-          "model": "a2c",
-          "date": "2025-12-04",
-          "action": "BUY",
-          "action_ko": "매수",
-          "investment_style": "aggressive",
-          "indicators": [...],
-          "xai_features": [...],
-          "explanation": "..."
-        }
     """
     result = ai_service.predict_today(
         symbol=req.symbol,
@@ -160,9 +138,6 @@ def predict(req: AIPredictRequest):
         investment_style=req.investment_style,
     )
 
-    # ai_service.predict_today()는 내부에서 에러가 나도
-    # 기본 HOLD 응답을 리턴하도록 구현했으므로,
-    # 여기서는 보통 그대로 내려주면 된다.
     if not result:
         raise HTTPException(status_code=500, detail="Failed to get AI prediction")
 
@@ -172,7 +147,6 @@ def predict(req: AIPredictRequest):
 # --------------------------------
 # POST /ai/predict/{mode}
 #  → 프론트 호환용 래거시 엔드포인트
-#    (FE에서 /predict/marl, /predict/a2c 형태로 호출한다고 가정)
 # --------------------------------
 
 @router.post("/predict/{mode}")
@@ -182,18 +156,6 @@ def legacy_predict(
 ):
     """
     프론트엔드가 사용하는 옛날 형태의 예측 API를 위한 호환용 엔드포인트.
-
-    - 예상 프론트 요청:
-        POST /ai/predict/marl
-        {
-          "symbol": "005930",
-          "features": { ... },            # 현재는 사용하지 않음
-          "investment_style": "aggressive"
-        }
-
-    - 역할:
-        1) path param mode("a2c"/"marl")를 이용해 내부 AI 서비스 호출
-        2) ai_service.predict_today() 결과를 프론트가 기대하는 필드명으로 매핑
     """
     mode = mode.lower()
     if mode not in ("a2c", "marl"):
@@ -220,32 +182,14 @@ def legacy_predict(
     if not result:
         raise HTTPException(status_code=500, detail="Failed to get AI prediction")
 
-    # ai_service.predict_today()에서 내려주는 값 예시:
-    # {
-    #   "symbol": ...,
-    #   "model": "a2c" or "marl",
-    #   "date": "YYYY-MM-DD",
-    #   "action": "BUY" / "SELL" / "HOLD",
-    #   "action_ko": "매수" / "매도" / "관망",
-    #   "confidence": ...,
-    #   "win_rate": ...,
-    #   "investment_style": ...,
-    #   "indicators": [...],
-    #   "xai_features": [...],
-    #   "explanation": "..."
-    # }
-
-    # 프론트 쪽 StockDetail.tsx에서는 다음 필드를 기대:
-    # - result.signal
-    # - result.gpt_explanation
-    # 그래서 여기서 이름을 맞춰서 내려준다.
     action_en = result.get("action", "HOLD")  # "BUY"/"SELL"/"HOLD"
-    signal = action_en.lower()                # "buy"/"sell"/"hold" → translateSignal()과 연동
+    signal = action_en.lower()                # "buy"/"sell"/"hold"
 
     return {
         # 프론트 호환용 필드
         "signal": signal,
         "gpt_explanation": result.get("explanation", ""),
+        # short_description 제거됨
 
         # 참고용: 원본 응답도 함께 포함 (디버깅/확장용)
         "symbol": result.get("symbol", symbol),

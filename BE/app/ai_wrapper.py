@@ -660,17 +660,8 @@ class AIService:
     def __init__(self):
         self.a2c = a2c_wrapper
         self.marl = marl_wrapper
-        # 예측 결과 캐싱
+        # 캐싱을 위한 딕셔너리
         self.prediction_cache = {}
-
-    def _build_explanation(self, model_name: str, action_id: int, investment_style: str) -> str:
-        action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
-        model_label = "A2C 강화학습" if model_name == "a2c" else "MARL 3-에이전트"
-        style_label = "공격적인" if investment_style == "aggressive" else "안정적인"
-        return (
-            f"[RULE] {model_label} 모델이 최근 학습된 패턴을 바탕으로 "
-            f"{style_label} 투자 성향에 맞춰 오늘은 '{action_ko}' 전략이 유리하다고 판단했습니다."
-        )
 
     def predict_today(self, symbol: Optional[str] = None, mode: str = "a2c", investment_style: str = "aggressive") -> Dict[str, Any]:
         if mode not in ("a2c", "marl"):
@@ -679,18 +670,16 @@ class AIService:
         if symbol is None:
             symbol = "005930.KS"
 
-        # 1. 캐시 확인
-        today_str = datetime.now().strftime("%Y-%m-%d")  # 날짜 기준
+        # 1. 캐시 확인 (오늘 날짜 + 조건이 같으면 캐시 리턴)
+        today_str = datetime.now().strftime("%Y-%m-%d")
         cache_key = (today_str, symbol, mode, investment_style)
 
-        if cache_key in self.prediction_cache: # 예측 기록 있는지 확인
+        if cache_key in self.prediction_cache:
             print(f"[AIService] Using cached result for {cache_key}")
             return self.prediction_cache[cache_key]
 
-        start_dt = datetime.now() - timedelta(days=180)
-        start_str = start_dt.strftime("%Y-%m-%d")
-
         try:
+            # 2. 모델 예측 실행
             if mode == "a2c":
                 today_pred = self.a2c.predict_today()
             else:
@@ -701,68 +690,43 @@ class AIService:
 
             action_id = int(today_pred["action"])
             date_str = today_pred.get("date")
+            # XAI Feature 리스트 (Top 3)
             xai_features = today_pred.get("xai_features", [])
 
             action_en = ACTION_ID_TO_EN.get(action_id, "HOLD")
             action_ko = ACTION_ID_TO_KO.get(action_id, "관망")
             
-            explanation = self._build_explanation(mode, action_id, investment_style)
-
-            # XAI 기반 raw 지표/중요도 딕셔너리 (항상 반환에 포함되도록 try 바깥에서 초기화)
-            feature_importance: Dict[str, float] = {}
-            technical_indicators: Dict[str, float] = {}
-
-            # GPT 설명 시도
+            # 기본값 설정 (GPT 실패 대비)
+            explanation = f"AI 모델이 {action_ko} 포지션을 추천합니다."
+            
+            # 3. GPT 서비스를 호출하여 '구체적 이유' 생성
             try:
-                # XAI 결과에서:
-                #  - technical_indicators: 각 지표의 raw 값
-                #  - feature_importance  : 각 지표의 중요도(영향도)
-                for i, feat in enumerate(xai_features):
-                    if not isinstance(feat, dict):
-                        continue
-
-                    # 지표 이름 결정: name > base > feature > indicator > feature_i
-                    fname = (
-                        feat.get("name")
-                        or feat.get("base")
-                        or feat.get("feature")
-                        or feat.get("indicator")
-                        or f"feature_{i}"
-                    )
-
-                    # 중요도(영향도)는 importance / score / core 등의 필드에서만 읽음
-                    importance_val = (
-                        feat.get("importance")
-                        or feat.get("score")
-                        or feat.get("core")
-                    )
-                    if importance_val is not None:
-                        try:
-                            feature_importance[fname] = float(importance_val)
-                        except (TypeError, ValueError):
-                            pass
-
-                    # raw 값은 value 필드에서만 읽어서 technical_indicators에 저장
-                    raw_val = feat.get("value")
-                    if raw_val is not None:
-                        try:
-                            technical_indicators[fname] = float(raw_val)
-                        except (TypeError, ValueError):
-                            pass
-
-                # GPT API 호출
-                gpt_explanation = interpret_model_output(
-                    signal=action_en,
-                    technical_indicators=technical_indicators,
-                    feature_importance=feature_importance,
+                gpt_result = interpret_model_output(
+                    signal=action_ko,       # "매수" / "매도"
+                    xai_features=xai_features # 지표 리스트 통째로 전달
                 )
+                
+                # 3-1. 종합 설명 적용
+                if gpt_result.get("global_explanation"):
+                    explanation = "[AI 분석] " + gpt_result["global_explanation"]
+                
+                # 3-2. 각 지표별 설명(explain) 매핑
+                explanations_list = gpt_result.get("feature_explanations", [])
+                
+                for i, feat in enumerate(xai_features):
+                    # GPT가 준 리스트 순서대로 매핑
+                    if i < len(explanations_list):
+                        feat["explain"] = explanations_list[i]
+                    else:
+                        feat["explain"] = f"{feat.get('base')} 지표가 예측에 기여했습니다."
 
-                if isinstance(gpt_explanation, str) and gpt_explanation.strip():
-                    explanation = "[GPT] " + gpt_explanation.strip()
+            except Exception as e:
+                print(f"[AIService] GPT Generation Failed: {e}")
+                # 실패 시에도 기본 explain 필드는 있어야 함
+                for feat in xai_features:
+                    feat["explain"] = "상세 분석 정보를 불러오지 못했습니다."
 
-            except Exception as gpt_err:
-                print(f"[AIService] GPT failed: {gpt_err}")
-
+            # 4. 최종 결과 조립
             result = {
                 "symbol": symbol,
                 "model": mode,
@@ -770,26 +734,16 @@ class AIService:
                 "action": action_en,
                 "action_ko": action_ko,
                 "investment_style": investment_style,
-                "xai_features": xai_features,
-                "technical_indicators": technical_indicators,  # ⬅ raw 값 딕셔너리
-                "feature_importance": feature_importance,      # ⬅ 중요도 딕셔너리
+                "xai_features": xai_features,  # 여기에 'explain'이 채워져 있음
                 "explanation": explanation,
             }
 
-            # 캐시 업데이트
+            # 캐시에 저장
             self.prediction_cache[cache_key] = result
             return result
-        except Exception as e:
-            print(f"[AIService] Error: {e}")
-            return {
-                "symbol": symbol,
-                "model": mode,
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "action": "HOLD",
-                "action_ko": "관망",
-                "investment_style": investment_style,
-                "explanation": "AI 예측 중 오류가 발생하여 기본적으로 '관망' 전략을 추천합니다.",
-            }
 
-# 싱글톤 인스턴스
+        except Exception as e:
+            print(f"[AIService] Critical Error: {e}")
+            return None
+
 ai_service = AIService()
