@@ -51,6 +51,8 @@ type XAIReference = {
     direction?: string;
     description?: string;
     short_description?: string;
+    explain?: string;
+    explanation?: string;
 };
 
 interface PredictionData {
@@ -331,13 +333,40 @@ function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
         };
 
         const loadChartData = async () => {
+            let backendConnected = false;
+            
             try {
+                // 백엔드 연결 상태 먼저 확인
+                await api.health();
+                backendConnected = true;
+                console.log("백엔드 연결 성공");
+            } catch (healthError) {
+                console.warn("백엔드 연결 실패:", healthError);
+                backendConnected = false;
+            }
+            
+            if (!backendConnected) {
+                console.log("백엔드 연결 실패로 Mock 데이터 사용");
+                if (chartInstanceRef.current && seriesRef.current) {
+                    seriesRef.current.setData(generateMockData());
+                    chartInstanceRef.current.timeScale().fitContent();
+                }
+                return;
+            }
+            
+            try {
+                // 종목 코드 변환 (삼성전자 -> 005930.KS)
+                const symbol = resolveStockSymbol(stockSymbol) || "005930.KS";
+                console.log("차트용 종목 코드:", symbol, "원본:", stockSymbol);
+                
                 // 백엔드에서 최근 30일 주가 데이터 가져오기
-                const historyData = await api.getStockHistory(stockSymbol, 30);
+                const historyData = await api.getStockHistory(symbol, 30);
                 
                 if (!historyData || historyData.length === 0) {
                     throw new Error("Stock data is empty");
                 }
+                
+                console.log("주가 데이터 로딩 성공:", historyData.length, "개 데이터");
                 
                 // 데이터를 차트 형식으로 변환
                 const chartData = historyData
@@ -356,6 +385,15 @@ function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
                 }
             } catch (error) {
                 console.error("주가 데이터 로딩 실패, Mock 데이터 사용:", error);
+                
+                // 구체적인 에러 정보 로깅
+                if (error instanceof Error) {
+                    console.error("에러 메시지:", error.message);
+                    if ('status' in error) {
+                        console.error("HTTP 상태:", (error as any).status);
+                    }
+                }
+                
                 // 에러 시 Mock 데이터 사용
                 if (chartInstanceRef.current && seriesRef.current) {
                     seriesRef.current.setData(generateMockData());
@@ -624,9 +662,10 @@ function getReferenceDate(now = new Date()) {
     return referenceDate;
 }
 
-function getReferenceDateISO(now = new Date()) {
-    return getReferenceDate(now).toISOString().split("T")[0];
-}
+// 임시로 비활성화된 함수 (디버깅용)
+// function getReferenceDateISO(now = new Date()) {
+//     return getReferenceDate(now).toISOString().split("T")[0];
+// }
 
 function getTop3ReferenceLabel(now = new Date()) {
     const referenceDate = getReferenceDate(now);
@@ -673,6 +712,10 @@ function Top3AnalysisSection({
     
     // 백엔드에서 받은 XAI 데이터를 IndicatorInfo 형식으로 변환
     const hasXaiData = xaiFeatures.length > 0;
+    
+    // XAI 데이터 디버깅
+    console.log("Top3AnalysisSection - xaiFeatures:", xaiFeatures);
+    
     const indicators: IndicatorInfo[] = hasXaiData
         ? xaiFeatures.slice(0, 3).map((feature, index) => {
             const shapSource =
@@ -695,15 +738,36 @@ function Top3AnalysisSection({
                 feature.short_description ||
                 `${displayTitle} 지표`;
 
+            // 백엔드에서 받은 설명 사용 (explain 필드 우선)
+            const backendExplanation = feature.explain || feature.explanation;
+            
+            // 디버깅 로그
+            console.log(`Feature ${index} (${displayTitle}):`, {
+                explain: feature.explain,
+                explanation: feature.explanation,
+                backendExplanation,
+                hasValidExplanation: backendExplanation && backendExplanation.trim().length > 0
+            });
+            
+            // 백엔드 explain 필드를 우선 사용, 없으면 기본 템플릿
+            let finalDescription;
+            if (feature.explain && typeof feature.explain === 'string' && feature.explain.trim().length > 0) {
+                finalDescription = feature.explain.trim();
+            } else if (feature.explanation && typeof feature.explanation === 'string' && feature.explanation.trim().length > 0) {
+                finalDescription = feature.explanation.trim();
+            } else {
+                finalDescription = `${description} - AI가 이 지표를 ${direction} 요인으로 판단했습니다. (영향도: ${impact})`;
+            }
+
             return {
                 id: `xai-${index}`,
                 title: displayTitle,
                 value: impact,
                 status: direction === "지지" ? "positive" : "negative",
-                shortDescription: `${description} - AI가 이 지표를 ${direction} 요인으로 판단했습니다. (영향도: ${impact})`,
-                detailedDescription: description,
+                shortDescription: finalDescription,
+                detailedDescription: backendExplanation || description,
                 interpretationPoints: [
-                    `이 지표는 AI 모델의 결정에 ${direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
+                    backendExplanation || `이 지표는 AI 모델의 결정에 ${direction === "지지" ? "긍정적" : "부정적"}인 영향을 미쳤습니다.`,
                     `SHAP 값: ${shapText}`,
                     `${direction === "지지" ? "매수" : "매도"} 신호를 강화하는 요인입니다.`,
                 ],
@@ -987,33 +1051,31 @@ export default function StockDetail({
                 };
                 const investmentStyleEn = styleMap[investmentStyle] || "aggressive";
 
-                const referenceDateISO = getReferenceDateISO();
-                const cacheKey = `${referenceDateISO}_${symbol}_${investmentStyleEn}`;
-                const cache = loadPredictionCache();
-                const cachedEntry = cache?.[cacheKey];
-                if (cachedEntry?.data && !isErrorPrediction(cachedEntry.data)) {
-                    setAiData(cachedEntry.data);
-                    setIsBackendConnected(true);
-                    setLoading(false);
-                    return;
-                } else if (cachedEntry?.data && isErrorPrediction(cachedEntry.data)) {
-                    delete cache[cacheKey];
-                    localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
-                }
-
                 let result;
-                let usedMockData = false;
-                let encounteredError = false;
                 try {
                     // 백엔드 API 호출
                     await api.health();
                     setIsBackendConnected(true);
                     result = await api.predictByInvestmentStyle(symbol, investmentStyleEn);
+                    
+                    // 백엔드 응답 디버깅
+                    console.log("백엔드 API 응답:", result);
+                    console.log("XAI Features:", result.xai_features);
+                    if (result.xai_features && result.xai_features.length > 0) {
+                        result.xai_features.forEach((feature: any, index: number) => {
+                            console.log(`Feature ${index}:`, {
+                                name: feature.name,
+                                explain: feature.explain,
+                                explanation: feature.explanation,
+                                description: feature.description,
+                                short_description: feature.short_description
+                            });
+                        });
+                    }
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
                     setIsBackendConnected(false);
                     // Mock 데이터 폴백
-                    usedMockData = true;
                     result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
                 }
 
@@ -1030,13 +1092,17 @@ export default function StockDetail({
                     indicators: result.technical_indicators || {},
                     xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
                 };
-                if (isErrorPrediction(nextData)) {
-                    encounteredError = true;
-                }
+                
+                // xaiFeatures 저장 후 확인
+                console.log("저장된 xaiFeatures:", nextData.xaiFeatures);
+                nextData.xaiFeatures.forEach((feature, idx) => {
+                    console.log(`저장된 Feature ${idx}:`, {
+                        name: feature.name,
+                        explain: feature.explain,
+                        hasExplain: !!feature.explain
+                    });
+                });
                 setAiData(nextData);
-                if (!usedMockData && !encounteredError) {
-                    savePredictionCacheEntry(cacheKey, nextData);
-                }
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
