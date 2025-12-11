@@ -708,7 +708,7 @@ class AIService:
                 
                 # 3-1. 종합 설명 적용
                 if gpt_result.get("global_explanation"):
-                    explanation = "[AI 분석] " + gpt_result["global_explanation"]
+                    explanation = gpt_result["global_explanation"]
                 
                 # 3-2. 각 지표별 설명(explain) 매핑
                 explanations_list = gpt_result.get("feature_explanations", [])
