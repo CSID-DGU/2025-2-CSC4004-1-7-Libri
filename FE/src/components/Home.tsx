@@ -1,11 +1,11 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
 import LogoIcon from "@/assets/icons/Logo.svg?react";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
-import StockDetail from "./StockDetail";
+import StockDetail, { type TradingSummary } from "./StockDetail";
 import { api } from "@/api/client";
 import { mapSymbolToDisplayName, resolveStockSymbol } from "@/lib/stocks";
 import {
@@ -13,7 +13,6 @@ import {
     generateRandomActions,
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
-import { calculateTradingProfit } from "@/utils/tradingCalculator";
 
 interface Stock {
     name: string;
@@ -26,6 +25,7 @@ interface Stock {
 interface StockPerformance {
     profit: number;
     profitRate: number;
+    latestPrice?: number;
 }
 
 type StockPerformanceMap = Record<string, StockPerformance>;
@@ -41,14 +41,20 @@ interface HomeProps {
 
 const formatNumber = (value: number) => value.toLocaleString();
 
-const formatProfitText = (profit: number, profitRate: number) => {
-    const positive = profit >= 0;
-    const sign = positive ? "+" : "";
-    return {
-        text: `${sign}${formatNumber(profit)} (${sign}${profitRate.toFixed(1)}%)`,
-        color: positive ? "#f3646f" : "#2563eb",
+const formatProfitText = (profit: number, profitRate: number, zeroColor = "var(--component-main)") => {
+        if (profit === 0 && profitRate === 0) {
+            return {
+                text: `0 (0%)`,
+                color: zeroColor,
+            };
+        }
+        const positive = profit >= 0;
+        const sign = positive ? "+" : "";
+        return {
+            text: `${sign}${formatNumber(profit)} (${sign}${profitRate.toFixed(1)}%)`,
+            color: positive ? "#f3646f" : "#2563eb",
+        };
     };
-};
 
 function HomeHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     return (
@@ -103,7 +109,10 @@ function InvestmentState({
                     <span className="body-1 text-[#1fa9a4]" style={{ fontWeight: 700 }}>
                         {formatNumber(initialInvestment)}
                     </span>
-                    으로 총 수익률{" "}
+                    으로{" "}
+                </p>
+                <p className="body-1">
+                    총 수익률{" "}
                     <span className="body-1" style={{ color: aiProfitInfo.color, fontWeight: 700 }}>
                         {aiProfitInfo.text}
                     </span>
@@ -163,13 +172,18 @@ function StockCard({
     onClick,
     aiProfit,
     aiProfitRate,
+    latestPrice,
 }: {
     stock: Stock;
     onClick: (stockName: string) => void;
     aiProfit: number;
     aiProfitRate: number;
+    latestPrice?: number;
 }) {
     const { text, color } = formatProfitText(aiProfit, aiProfitRate);
+    const displayValue = latestPrice !== undefined
+        ? Math.round((stock.quantity ?? 0) * latestPrice)
+        : stock.totalValue;
 
     return (
         <button
@@ -191,7 +205,7 @@ function StockCard({
                 </div>
                 <div className="flex flex-col items-end text-right">
                     <p className="title-3 text-[#444951]" style={{ fontWeight: 700 }}>
-                        {formatNumber(stock.totalValue)}원
+                        {formatNumber(displayValue)}원
                     </p>
                     <p
                         className="body-3 "
@@ -225,14 +239,15 @@ function StockList({
     return (
         <div className="flex w-full flex-col gap-[12px]">
             {stocks.map((stock) => (
-                <StockCard
-                    key={stock.name}
-                    stock={stock}
-                    onClick={onStockClick}
-                    aiProfit={stockPerformance[stock.name]?.profit ?? 0}
-                    aiProfitRate={stockPerformance[stock.name]?.profitRate ?? 0}
-                />
-            ))}
+                            <StockCard
+                                key={stock.name}
+                                stock={stock}
+                                onClick={onStockClick}
+                                aiProfit={stockPerformance[stock.name]?.profit ?? 0}
+                                aiProfitRate={stockPerformance[stock.name]?.profitRate ?? 0}
+                                latestPrice={stockPerformance[stock.name]?.latestPrice}
+                            />
+                        ))}
         </div>
     );
 }
@@ -269,7 +284,7 @@ function StockSection({
     return (
         <section className="flex flex-col mt-[28px]">
             <h2 className="title-3 tracking-[0.16px] text-[#151b26]" style={{ margin: 0, marginBottom: "10px" }}>
-                종목별 상세</h2>
+                내 종목</h2>
             <div className="mt-[10px] flex flex-col">
                 <div style={{ marginBottom: "12px" }}>
                     <StockList
@@ -358,6 +373,18 @@ export default function Home({
     const [portfolioStocks, setPortfolioStocks] = useState<Stock[]>([]);
     const [portfolioInitialInvestment, setPortfolioInitialInvestment] = useState<number | null>(null);
     const [isBackendConnected, setIsBackendConnected] = useState(true);
+    const [simulatedHoldings, setSimulatedHoldings] = useState<Record<string, TradingSummary>>({});
+    const handleSimulatedHoldingsUpdate = useCallback((stockName: string, summary: TradingSummary | null) => {
+        setSimulatedHoldings((prev) => {
+            const next = { ...prev };
+            if (!summary || (summary.netShares === 0 && summary.realizedProfit === 0 && summary.positionValue === 0)) {
+                delete next[stockName];
+            } else {
+                next[stockName] = summary;
+            }
+            return next;
+        });
+    }, []);
 
     useEffect(() => {
         if (!userId) return;
@@ -405,10 +432,28 @@ export default function Home({
         };
     }, [userId]);
 
-    const effectiveStocks = portfolioStocks.length ? portfolioStocks : stocks;
-    const summaryStockName = effectiveStocks[0]?.name || "삼성전자";
-    const effectiveInitialInvestment =
-        portfolioInitialInvestment !== null ? portfolioInitialInvestment : initialInvestment;
+    const effectiveStocks = stocks;
+    const [adjustedStocks, summaryStockName] = useMemo(() => {
+        const adjusted = effectiveStocks.map((stock) => {
+            const summary = simulatedHoldings[stock.name];
+            if (!summary) {
+                return stock;
+            }
+            const baseQuantity = stock.quantity ?? 0;
+            const adjustedQuantity = baseQuantity + summary.netShares;
+            const unitPrice = summary.lastTradePrice ?? summary.averagePrice ?? stock.averagePrice ?? 0;
+            const totalValue = Math.max(adjustedQuantity, 0) * unitPrice;
+            return {
+                ...stock,
+                quantity: Math.max(adjustedQuantity, 0),
+                averagePrice: unitPrice,
+                totalValue,
+            };
+        });
+        const firstName = adjusted[0]?.name || "삼성전자";
+        return [adjusted, firstName] as const;
+    }, [effectiveStocks, simulatedHoldings]);
+    const effectiveInitialInvestment = Number(initialInvestment) || 0;
     
     // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
     const generateMockPerformance = useMemo(() => {
@@ -435,38 +480,43 @@ export default function Home({
                 const performanceMap: StockPerformanceMap = {};
 
                 // 각 종목에 대해 AI 거래 내역 기반 수익률 계산
-                for (const stock of effectiveStocks.length > 0 ? effectiveStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }]) {
+                const targetStocks = adjustedStocks.length > 0
+                    ? adjustedStocks
+                    : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }];
+                for (const stock of targetStocks) {
                     try {
                         const symbol = resolveStockSymbol(stock.name) || "005930.KS";
                         
-                        // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
-                        const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
-
                         // 30일 전부터 데이터 가져오기
-                        const startDate = new Date();
-                        startDate.setDate(startDate.getDate() - 30);
-                        const startDateStr = startDate.toISOString().split('T')[0];
-
-                        // AI 히스토리와 주가 데이터 가져오기
-                        const [aiHistory, stockHistory] = await Promise.all([
-                            api.getAIHistory(modelType, startDateStr),
-                            api.getStockHistory(symbol, 30)
-                        ]);
+                        const stockHistory = await api.getStockHistory(symbol, 30);
 
                         // 백엔드 연결 성공
                         setIsBackendConnected(true);
 
-                        // 거래 내역에서 총 수익 계산
-                        const tradingResult = calculateTradingProfit(aiHistory, stockHistory, effectiveInitialInvestment);
+                        const latestEntry = [...stockHistory].sort((a: any, b: any) => a.date.localeCompare(b.date)).at(-1);
+                        const latestClose = latestEntry?.close ?? 0;
+                        const quantity = stock.quantity ?? 0;
+                        const averagePrice = stock.averagePrice ?? 0;
+                        let profit = 0;
+                        let profitRate = 0;
+                        if (quantity > 0 && averagePrice > 0) {
+                            profit = (latestClose - averagePrice) * quantity;
+                            profitRate = ((latestClose - averagePrice) / averagePrice) * 100;
+                        }
                         
                         performanceMap[stock.name] = { 
-                            profit: tradingResult.totalProfit, 
-                            profitRate: tradingResult.profitRate 
+                            profit, 
+                            profitRate,
+                            latestPrice: latestClose,
                         };
                     } catch (error) {
                         console.warn(`${stock.name} 데이터 로딩 실패, Mock 데이터 사용:`, error);
                         setIsBackendConnected(false);
-                        performanceMap[stock.name] = generateMockPerformance(stock.name);
+                        const mock = generateMockPerformance(stock.name);
+                        performanceMap[stock.name] = {
+                            ...mock,
+                            latestPrice: stock.averagePrice ?? 0,
+                        };
                     }
                 }
 
@@ -475,20 +525,32 @@ export default function Home({
                 console.error("주식 성과 데이터 로딩 실패, Mock 데이터 사용:", error);
                 // 전체 실패 시 Mock 데이터 사용
                 const mockPerformance: StockPerformanceMap = {};
-                const stockList = effectiveStocks.length > 0 ? effectiveStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }];
+                const stockList = adjustedStocks.length > 0 ? adjustedStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }];
                 stockList.forEach(stock => {
-                    mockPerformance[stock.name] = generateMockPerformance(stock.name);
+                    const basePerformance = generateMockPerformance(stock.name);
+                    const simulated = simulatedHoldings[stock.name];
+                    if (simulated) {
+                        mockPerformance[stock.name] = {
+                            profit: simulated.realizedProfit,
+                            profitRate:
+                                effectiveInitialInvestment > 0
+                                    ? (simulated.realizedProfit / effectiveInitialInvestment) * 100
+                                    : 0,
+                        };
+                    } else {
+                        mockPerformance[stock.name] = basePerformance;
+                    }
                 });
                 setStockPerformance(mockPerformance);
             }
         };
 
         loadStockPerformance();
-    }, [effectiveStocks, summaryStockName, effectiveInitialInvestment, generateMockPerformance]);
+    }, [adjustedStocks, summaryStockName, effectiveInitialInvestment, generateMockPerformance, simulatedHoldings]);
 
     const aiTradeProfit = useMemo(
-        () => Object.values(stockPerformance).reduce((acc, { profit }) => acc + profit, 0),
-        [stockPerformance],
+        () => Object.values(simulatedHoldings).reduce((acc, summary) => acc + (summary?.realizedProfit ?? 0), 0),
+        [simulatedHoldings],
     );
     const aiTradeProfitRate =
         effectiveInitialInvestment > 0 ? (aiTradeProfit / effectiveInitialInvestment) * 100 : 0;
@@ -510,6 +572,7 @@ export default function Home({
                 investmentStyle={investmentStyle}
                 initialInvestment={effectiveInitialInvestment}
                 onBack={handleBackToList}
+                onSimulatedHoldingsUpdate={handleSimulatedHoldingsUpdate}
             />
         );
     }
@@ -520,7 +583,7 @@ export default function Home({
                 initialInvestment={effectiveInitialInvestment}
                 aiTradeProfit={aiTradeProfit}
                 aiTradeProfitRate={aiTradeProfitRate}
-                stocks={effectiveStocks}
+                stocks={adjustedStocks}
                 onAddStock={onAddStock}
                 onStockClick={handleStockClick}
                 onOpenSettings={onOpenSettings}
