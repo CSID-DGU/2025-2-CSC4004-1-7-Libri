@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 import EyeIcon from "@/assets/icons/eye.svg?react";
@@ -20,15 +20,26 @@ export default function Register({ onBack, onSuccess }: RegisterProps) {
     const [error, setError] = useState("");
     const [submitting, setSubmitting] = useState(false);
 
+    const trimmedEmail = email.trim();
+    const emailErrorMessage = useMemo(() => {
+        if (trimmedEmail.length === 0) return "";
+        const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailPattern.test(trimmedEmail) ? "" : "올바른 이메일 주소를 입력해 주세요.";
+    }, [trimmedEmail]);
+
     const canSubmit =
-        email.trim().length > 0 && password.trim().length > 0 && agreed && !submitting;
+        trimmedEmail.length > 0 &&
+        emailErrorMessage.length === 0 &&
+        password.trim().length > 0 &&
+        agreed &&
+        !submitting;
 
     const handleSubmit = async () => {
         if (!canSubmit) return;
         setError("");
         setSubmitting(true);
         try {
-            const createdUser = await api.signup(email.trim(), password.trim());
+            const createdUser = await api.signup(trimmedEmail, password.trim());
             onSuccess?.(createdUser);
         } catch (err) {
             const detailFromBody = (err as any)?.body?.detail;
@@ -80,7 +91,7 @@ export default function Register({ onBack, onSuccess }: RegisterProps) {
                                     backgroundColor: "var(--component-background)",
                                 }}
                             />
-                            {email.trim().length > 0 && (
+                            {trimmedEmail.length > 0 && (
                                 <button
                                     type="button"
                                     onClick={() => setEmail("")}
@@ -149,9 +160,9 @@ export default function Register({ onBack, onSuccess }: RegisterProps) {
                                 </button>
                             )}
                         </div>
-                        {error && (
+                        {(error || emailErrorMessage) && (
                             <p className="body-3" style={{ color: "var(--component-red)", marginTop: 4 }}>
-                                {error}
+                                {emailErrorMessage || error}
                             </p>
                         )}
                     </div>
