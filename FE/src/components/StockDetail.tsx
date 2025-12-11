@@ -34,6 +34,7 @@ interface StockDetailProps {
     investmentStyle: InvestmentStyle;
     initialInvestment: number;
     onBack: () => void;
+    onSimulatedHoldingsUpdate?: (stockName: string, summary: TradingSummary | null) => void;
 }
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
@@ -64,8 +65,21 @@ interface CachedPredictionEntry {
     storedAt: string;
 }
 
+export interface TradingSummary {
+    netShares: number;
+    averagePrice: number;
+    lastTradePrice: number | null;
+    realizedProfit: number;
+    positionValue: number;
+}
+
+interface TradingHistoryCacheValue {
+    history: DayTrading[];
+    summary: TradingSummary;
+}
+
 interface CachedTradingHistoryEntry {
-    data: DayTrading[];
+    data: TradingHistoryCacheValue | DayTrading[];
     storedAt: string;
 }
 
@@ -101,7 +115,7 @@ function loadTradingHistoryCache(): Record<string, CachedTradingHistoryEntry> {
     }
 }
 
-function saveTradingHistoryCacheEntry(key: string, data: DayTrading[]) {
+function saveTradingHistoryCacheEntry(key: string, data: TradingHistoryCacheValue) {
     try {
         const cache = loadTradingHistoryCache();
         cache[key] = { data, storedAt: new Date().toISOString() };
@@ -231,6 +245,45 @@ function calculateTradingHistory(
     });
 
     return history;
+}
+
+function summarizeTradingHistoryEntries(history: DayTrading[]): TradingSummary {
+    let shares = 0;
+    let totalCost = 0;
+    let realizedProfit = 0;
+    let lastTradePrice: number | null = null;
+
+    history.forEach((day) => {
+        day.trades.forEach((trade) => {
+            if (trade.type === "buy") {
+                const cost = trade.quantity * trade.pricePerShare;
+                totalCost += cost;
+                shares += trade.quantity;
+                lastTradePrice = trade.pricePerShare;
+            } else if (trade.type === "sell") {
+                const sellQuantity = trade.quantity;
+                const averageCost = shares > 0 ? totalCost / shares : 0;
+                const costBasis = averageCost * sellQuantity;
+                totalCost -= costBasis;
+                shares -= sellQuantity;
+                realizedProfit += trade.profit ?? 0;
+                lastTradePrice = trade.pricePerShare;
+            }
+        });
+    });
+
+    if (shares < 0) shares = 0;
+    if (totalCost < 0) totalCost = 0;
+    const averagePrice = shares > 0 ? totalCost / shares : lastTradePrice ?? 0;
+    const positionValue = shares > 0 ? shares * (lastTradePrice ?? averagePrice) : 0;
+
+    return {
+        netShares: shares,
+        positionValue,
+        averagePrice,
+        lastTradePrice,
+        realizedProfit,
+    };
 }
 
 function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
@@ -872,7 +925,13 @@ function StockDetailContent({
     );
 }
 
-export default function StockDetail({ stockName, investmentStyle, initialInvestment, onBack }: StockDetailProps) {
+export default function StockDetail({
+    stockName,
+    investmentStyle,
+    initialInvestment,
+    onBack,
+    onSimulatedHoldingsUpdate,
+}: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("top3");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
     const [aiData, setAiData] = useState<PredictionData>({
@@ -1017,8 +1076,15 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
 
                 const tradingCache = loadTradingHistoryCache();
                 const cachedEntry = tradingCache?.[cacheKey];
-                if (cachedEntry?.data?.length) {
-                    setTradingHistory(cachedEntry.data);
+                if (cachedEntry?.data) {
+                    const cachedHistory = Array.isArray(cachedEntry.data)
+                        ? cachedEntry.data
+                        : cachedEntry.data.history;
+                    const cachedSummary = Array.isArray(cachedEntry.data)
+                        ? summarizeTradingHistoryEntries(cachedEntry.data)
+                        : cachedEntry.data.summary;
+                    setTradingHistory(cachedHistory);
+                    onSimulatedHoldingsUpdate?.(stockName, cachedSummary);
                     return;
                 }
 
@@ -1030,8 +1096,10 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
 
                 // 거래 내역 계산
                 const history = calculateTradingHistory(aiHistory, stockHistory, initialInvestment);
+                const summary = summarizeTradingHistoryEntries(history);
                 setTradingHistory(history);
-                saveTradingHistoryCacheEntry(cacheKey, history);
+                onSimulatedHoldingsUpdate?.(stockName, summary);
+                saveTradingHistoryCacheEntry(cacheKey, { history, summary });
             } catch (error) {
                 console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
                 // 폴백: Mock 데이터 사용
@@ -1053,11 +1121,13 @@ export default function StockDetail({ stockName, investmentStyle, initialInvestm
                 });
                 
                 setTradingHistory(updatedHistory);
+                const summary = summarizeTradingHistoryEntries(updatedHistory);
+                onSimulatedHoldingsUpdate?.(stockName, summary);
             }
         };
 
         loadTradingHistory();
-    }, [stockName, investmentStyle, initialInvestment]);
+    }, [stockName, investmentStyle, initialInvestment, onSimulatedHoldingsUpdate]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
