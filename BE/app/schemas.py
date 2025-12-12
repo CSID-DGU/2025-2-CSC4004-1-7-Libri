@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from datetime import datetime
 class UserBase(BaseModel):
     email: str
 
@@ -14,6 +15,7 @@ class User(UserBase):
     is_active: bool
     investment_style: Optional[str] = None  # 투자 성향
     onboarding_completed: bool = False  # 온보딩 완료 여부
+    created_at: datetime | None = None  # 가입 시각
 
     class Config:
         orm_mode = True
