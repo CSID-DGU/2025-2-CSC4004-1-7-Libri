@@ -267,9 +267,11 @@ export default function App() {
                 }
 
                 const initialValue =
-                    typeof portfolio.total_asset === "number"
-                        ? portfolio.total_asset
-                        : portfolio.current_capital;
+                    typeof portfolio.initial_capital === "number"
+                        ? portfolio.initial_capital
+                        : (typeof portfolio.total_asset === "number"
+                            ? portfolio.total_asset
+                            : portfolio.current_capital);
 
                 if (typeof initialValue === "number" && !Number.isNaN(initialValue)) {
                     dispatch({

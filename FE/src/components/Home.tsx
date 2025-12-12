@@ -325,7 +325,7 @@ function HomeContent({
                                 ⚠️ 백엔드 서버에 연결할 수 없어 Mock 데이터를 표시하고 있습니다.
                             </p>
                             <p className="body-3 text-[#856404] text-xs">
-                                실제 데이터를 보려면 백엔드 서버를 실행해주세요:<br/>
+                                실제 데이터를 보려면 백엔드 서버를 실행해주세요:<br />
                                 <code className="bg-[#f8f9fa] px-1 rounded">cd BE && uvicorn app.main:app --reload --port 8000</code>
                             </p>
                         </div>
@@ -384,7 +384,9 @@ export default function Home({
                 });
 
                 setPortfolioStocks(mappedStocks);
-                if (typeof portfolio.total_asset === "number") {
+                if (typeof portfolio.initial_capital === "number") {
+                    setPortfolioInitialInvestment(portfolio.initial_capital);
+                } else if (typeof portfolio.total_asset === "number") {
                     setPortfolioInitialInvestment(portfolio.total_asset);
                 } else if (typeof portfolio.current_capital === "number") {
                     setPortfolioInitialInvestment(portfolio.current_capital);
@@ -409,7 +411,7 @@ export default function Home({
     const summaryStockName = effectiveStocks[0]?.name || "삼성전자";
     const effectiveInitialInvestment =
         portfolioInitialInvestment !== null ? portfolioInitialInvestment : initialInvestment;
-    
+
     // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
     const generateMockPerformance = useMemo(() => {
         return (stockName: string) => {
@@ -431,14 +433,14 @@ export default function Home({
     useEffect(() => {
         const loadStockPerformance = async () => {
             try {
-                
+
                 const performanceMap: StockPerformanceMap = {};
 
                 // 각 종목에 대해 AI 거래 내역 기반 수익률 계산
                 for (const stock of effectiveStocks.length > 0 ? effectiveStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }]) {
                     try {
                         const symbol = resolveStockSymbol(stock.name) || "005930.KS";
-                        
+
                         // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
                         const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
 
@@ -458,10 +460,10 @@ export default function Home({
 
                         // 거래 내역에서 총 수익 계산
                         const tradingResult = calculateTradingProfit(aiHistory, stockHistory, effectiveInitialInvestment);
-                        
-                        performanceMap[stock.name] = { 
-                            profit: tradingResult.totalProfit, 
-                            profitRate: tradingResult.profitRate 
+
+                        performanceMap[stock.name] = {
+                            profit: tradingResult.totalProfit,
+                            profitRate: tradingResult.profitRate
                         };
                     } catch (error) {
                         console.warn(`${stock.name} 데이터 로딩 실패, Mock 데이터 사용:`, error);
