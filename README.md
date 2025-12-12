@@ -67,13 +67,15 @@ sequenceDiagram
     
     %% 1. 회원가입 및 로그인
     Note over FE, DB: 1. 회원가입 및 로그인
+    alt 회원가입 미완료 시
     FE->>BE: 회원가입 요청 (Email, Password)
     BE->>DB: 사용자 정보 생성
     DB-->>BE: User ID 반환
     BE-->>FE: 가입 완료 응답
-    
+    end
+
     FE->>BE: 로그인 요청 (Email, Password)
-    BE->>DB: 사용자 검증 및 정보 조회
+    BE->>DB: 사용자 정보 조회
     DB-->>BE: User Info (온보딩 상태 포함)
     BE-->>FE: 로그인 토큰/ID 반환 (온보딩 필요 여부 포함)
     
