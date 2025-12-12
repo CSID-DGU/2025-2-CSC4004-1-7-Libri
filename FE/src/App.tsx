@@ -199,6 +199,8 @@ function reducer(state: State, action: Action): State {
             };
         case "SET_USER":
             return { ...state, userId: action.userId, userEmail: action.email };
+        case "SET_USER_CREATED_AT":
+            return { ...state, userCreatedAt: action.createdAt };
         case "SET_ONBOARDING_STATUS":
             return { ...state, onboardingCompleted: action.completed };
         case "LOGOUT":
@@ -611,5 +613,3 @@ export default function App() {
         </div>
     );
 }
-        case "SET_USER_CREATED_AT":
-            return { ...state, userCreatedAt: action.createdAt };
