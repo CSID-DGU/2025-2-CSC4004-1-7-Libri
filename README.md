@@ -52,7 +52,7 @@
 
 ---
 
-## � 시스템 흐름도 (System Flow)
+## 시스템 흐름도 (System Flow)
 
 사용자가 종목 분석을 요청할 때의 내부 처리 과정은 다음과 같습니다.
 
@@ -65,47 +65,56 @@ sequenceDiagram
     participant AI as AI (Model)
     participant GPT as GPT API
     
-    %% 1. 온보딩
-    Note over FE, DB: 1. 온보딩
-    FE->>BE: 로그인 요청
-    BE->>DB: 사용자 정보 조회
-    DB-->>BE: User Data
-    BE-->>FE: 로그인 성공하면 User ID 반환
-    FE->>BE: 투자 성향 입력
-    BE->>DB: 투자 성향 저장
-    BE-->>FE: 온보딩 완료 응답
+    %% 1. 회원가입 및 로그인
+    Note over FE, DB: 1. 회원가입 및 로그인
+    FE->>BE: 회원가입 요청 (Email, Password)
+    BE->>DB: 사용자 정보 생성
+    DB-->>BE: User ID 반환
+    BE-->>FE: 가입 완료 응답
     
-    %% 2. 포트폴리오
-    Note over FE, AI: 2. 포트폴리오
-    FE->>BE: 포트폴리오 요청
-    BE->>DB: 보유 종목 조회
-    DB-->>BE: 보유 주식 리스트
-    BE-->>FE: 자산 현황 응답
+    FE->>BE: 로그인 요청 (Email, Password)
+    BE->>DB: 사용자 검증 및 정보 조회
+    DB-->>BE: User Info (온보딩 상태 포함)
+    BE-->>FE: 로그인 토큰/ID 반환 (온보딩 필요 여부 포함)
     
-    %% 3. 주가 조회
-    Note over FE, DB: 3. 최근 30일 주가 정보 조회
-    FE->>BE: 최근 30일 주가 데이터 요청
-    BE->>DB: 최근 30일 주가 데이터 저장
-    DB-->>BE: 최근 30일 주가 데이터
-    BE-->>FE: 최근 30일 주가 데이터
+    %% 2. 온보딩 프로세스
+    Note over FE, DB: 2. 온보딩 (초기 설정)
+    alt 온보딩 미완료 시
+        FE->>BE: 초기 투자금, 보유 주식, 투자 성향 전송
+        BE->>DB: 포트폴리오 생성 및 성향 저장
+        DB-->>BE: 저장 완료
+        BE-->>FE: 온보딩 완료 응답
+    end
     
-    %% 4. AI 투자 예측
-    Note over FE, GPT: 4. AI 투자 예측
-    FE->>BE: 예측 요청
-    BE->>AI: 모델 추론 요청
+    %% 3. 포트폴리오
+    Note over FE, AI: 3. 포트폴리오 조회
+    FE->>BE: 메인 홈 데이터 요청
+    BE->>DB: 포트폴리오 및 보유 종목 조회
+    DB-->>BE: 자산 데이터
+    BE-->>FE: 총 자산 및 수익률 현황
+    
+    %% 4. 주가 조회
+    Note over FE, DB: 4. 주식 상세 조회
+    FE->>BE: 주가 히스토리 요청 (30일)
+    BE->>DB: 주가 데이터 조회 (없으면 API Fetch)
+    DB-->>BE: OHLCV 데이터
+    BE-->>FE: 차트 데이터 반환
+    
+    %% 5. AI 투자 예측
+    Note over FE, GPT: 5. AI 투자 예측 및 리포트
+    FE->>BE: AI 분석 요청
+    BE->>AI: 모델 추론 요청 (Market Data)
     
     rect rgb(240, 248, 255)
-        Note right of AI: AI 모델 내부 프로세스
-        AI->>AI: 데이터 전처리 (스케일링)
-        AI->>AI: 모델 추론 (Action 결정)
-        AI->>AI: XAI 분석 (SHAP/Q-value)
-        
+        Note right of AI: AI 프로세스
+        AI->>AI: 전처리 & Action 결정
+        AI->>AI: XAI (SHAP/Attention) 분석
     end
-    AI-->>BE: 예측 결과 (Action), XAI 분석 결과
-    BE->>BE: Top 3 중요 지표 추출
-    BE->>GPT: GPT 설명 생성 요청 (Signal, Top3 중요 지표)
-    GPT-->>BE: 자연어 투자 설명
-    BE-->>FE: 투자 리포트 반환 (Action, XAI Features, GPT 설명)
+    AI-->>BE: Signal(매수/매도) + 중요 지표(Feature Importance)
+    
+    BE->>GPT: 프롬프트 전송 (Signal + 중요 지표)
+    GPT-->>BE: 투자 조언 생성 (자연어)
+    BE-->>FE: 최종 리포트 (Signal, 중요 지표, 설명)
 ```
 
 ---
