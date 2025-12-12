@@ -58,7 +58,25 @@ def get_my_portfolio(user_id: int, db: Session = Depends(database.get_db)):
         "holdings": response_holdings
     }
 
-# ... (아래 POST 메서드들은 기존과 동일하게 유지) ...
+@router.post("/{user_id}")
+def initialize_portfolio(user_id: int, onboarding_data: schemas.OnboardingData, db: Session = Depends(database.get_db)):
+    """
+    초기 포트폴리오 설정 (온보딩 완료 처리)
+    - 초기 투자금 설정
+    - 투자 성향(Aggressive/Stable 등) 설정
+    - 초기 보유 주식 일괄 등록
+    """
+    updated_user = crud.complete_onboarding(db, user_id, onboarding_data)
+    
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {
+        "status": "success",
+        "message": "포트폴리오 생성 및 온보딩이 완료되었습니다.",
+        "user_id": updated_user.id
+    }
+
 @router.post("/{user_id}/holdings")
 def add_stock(user_id: int, holding: schemas.HoldingCreate, db: Session = Depends(database.get_db)):
     """보유 주식 추가 (매수)"""
