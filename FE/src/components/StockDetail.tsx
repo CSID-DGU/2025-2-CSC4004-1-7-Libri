@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useRef, useState, useMemo, type ComponentType, type SVGProps } from "react";
 import Header from "@/components/layout/Header";
 import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
 import CaretDownIcon from "@/assets/icons/caret-down.svg?react";
@@ -35,12 +35,14 @@ interface StockDetailProps {
     initialInvestment: number;
     onBack: () => void;
     onSimulatedHoldingsUpdate?: (stockName: string, summary: TradingSummary | null) => void;
+    userCreatedAt?: string | null;
+    userId?: number | null;
 }
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
 const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
-const AI_PREDICTION_CACHE_KEY = "libri_ai_prediction_cache";
-const AI_TRADING_HISTORY_CACHE_KEY = "libri_ai_trading_history_cache";
+const AI_TRADING_SIGNAL_CACHE_PREFIX = "libri_ai_trading_signals_v1";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 type XAIReference = {
     base?: string;
@@ -62,11 +64,6 @@ interface PredictionData {
     xaiFeatures: XAIReference[];
 }
 
-interface CachedPredictionEntry {
-    data: PredictionData;
-    storedAt: string;
-}
-
 export interface TradingSummary {
     netShares: number;
     averagePrice: number;
@@ -75,56 +72,18 @@ export interface TradingSummary {
     positionValue: number;
 }
 
-interface TradingHistoryCacheValue {
+type HistoricalSignalEntry = {
+    date: string;
+    signal: number;
+    daily_return?: number;
+    strategy_return?: number;
+};
+
+interface TradingSignalCacheData {
+    signals: HistoricalSignalEntry[];
     history: DayTrading[];
-    summary: TradingSummary;
-}
-
-interface CachedTradingHistoryEntry {
-    data: TradingHistoryCacheValue | DayTrading[];
-    storedAt: string;
-}
-
-function loadPredictionCache(): Record<string, CachedPredictionEntry> {
-    try {
-        const raw = localStorage.getItem(AI_PREDICTION_CACHE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function savePredictionCacheEntry(key: string, data: PredictionData) {
-    try {
-        const cache = loadPredictionCache();
-        cache[key] = { data, storedAt: new Date().toISOString() };
-        localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
-    } catch {
-        // localStorage access might fail; ignore to avoid crashing UI
-    }
-}
-
-function loadTradingHistoryCache(): Record<string, CachedTradingHistoryEntry> {
-    try {
-        const raw = localStorage.getItem(AI_TRADING_HISTORY_CACHE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function saveTradingHistoryCacheEntry(key: string, data: TradingHistoryCacheValue) {
-    try {
-        const cache = loadTradingHistoryCache();
-        cache[key] = { data, storedAt: new Date().toISOString() };
-        localStorage.setItem(AI_TRADING_HISTORY_CACHE_KEY, JSON.stringify(cache));
-    } catch {
-        // Ignore storage errors to keep UI responsive
-    }
+    summary: TradingSummary | null;
+    lastFetchedDate?: string;
 }
 
 function isErrorPrediction(data: PredictionData | undefined): boolean {
@@ -641,8 +600,137 @@ function getReferenceDate(now = new Date()) {
     return referenceDate;
 }
 
-function getReferenceDateISO(now = new Date()) {
-    return getReferenceDate(now).toISOString().split("T")[0];
+function safeParseDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+    return parsed;
+}
+
+function toDateOnlyString(date: Date | null): string | null {
+    if (!date) return null;
+    return date.toISOString().split("T")[0];
+}
+
+function subtractDays(date: Date, days: number) {
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() - days);
+    return copy;
+}
+
+function addDays(date: Date, days: number) {
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() + days);
+    return copy;
+}
+
+function normalizeCacheKeyPart(value: string) {
+    return value.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
+}
+
+function buildTradingCacheKey(userId: number | null | undefined, stockName: string, modelType: string) {
+    const idPart = userId ? String(userId) : "guest";
+    const stockPart = normalizeCacheKeyPart(stockName || "stock");
+    const modelPart = normalizeCacheKeyPart(modelType || "model");
+    return `${AI_TRADING_SIGNAL_CACHE_PREFIX}_${idPart}_${stockPart}_${modelPart}`;
+}
+
+function loadTradingSignalCache(key: string): TradingSignalCacheData | null {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+            parsed.signals = Array.isArray(parsed.signals) ? parsed.signals : [];
+            parsed.history = Array.isArray(parsed.history) ? parsed.history : [];
+            return parsed as TradingSignalCacheData;
+        }
+    } catch {
+        // ignore
+    }
+    return null;
+}
+
+function saveTradingSignalCache(key: string, data: TradingSignalCacheData) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch {
+        // ignore
+    }
+}
+
+function normalizeHistoricalSignals(
+    signals: HistoricalSignalEntry[],
+    limitDate?: string | null
+) {
+    if (!Array.isArray(signals)) return [];
+    return signals
+        .map((entry) => {
+            const dateOnly = entry.date?.split("T")[0] ?? entry.date;
+            return dateOnly
+                ? { ...entry, date: dateOnly }
+                : null;
+        })
+        .filter((entry): entry is HistoricalSignalEntry => {
+            if (!entry) return false;
+            if (limitDate) {
+                return entry.date <= limitDate;
+            }
+            return true;
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function mergeHistoricalSignals(
+    existing: HistoricalSignalEntry[],
+    updates: HistoricalSignalEntry[]
+) {
+    const map = new Map<string, HistoricalSignalEntry>();
+    existing.forEach((entry) => {
+        map.set(entry.date, entry);
+    });
+    updates.forEach((entry) => {
+        map.set(entry.date, entry);
+    });
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getLastSignalDate(signals: HistoricalSignalEntry[]): string | null {
+    if (!signals.length) return null;
+    return signals[signals.length - 1].date;
+}
+
+function determineNextFetchDate(
+    rangeStartStr: string | null,
+    lastFetchedDateStr: string | null,
+    rangeEndDate: Date | null
+): string | null {
+    if (!rangeEndDate) {
+        return rangeStartStr;
+    }
+    if (!lastFetchedDateStr) {
+        return rangeStartStr;
+    }
+    const lastFetched = safeParseDate(lastFetchedDateStr);
+    if (!lastFetched) {
+        return rangeStartStr;
+    }
+    const nextDate = addDays(lastFetched, 1);
+    if (nextDate > rangeEndDate) {
+        return null;
+    }
+    return toDateOnlyString(nextDate);
+}
+
+function filterTradingHistoryToActionDays(history: DayTrading[]) {
+    return history
+        .map((day) => ({
+            ...day,
+            trades: day.trades.filter((trade) => trade.type === "buy" || trade.type === "sell"),
+        }))
+        .filter((day) => day.trades.length > 0);
 }
 
 function getTop3ReferenceLabel(now = new Date()) {
@@ -860,7 +948,33 @@ function TradingHistorySection({
             </div>
             <div className="flex flex-col gap-6">
                 {entries.length === 0 ? (
-                    <p className="text-xs text-[#9a9ea9]">거래 내역이 없습니다.</p>
+                    <div
+                        className="flex flex-col items-center text-center w-full text-[#9a9ea9]"
+                        style={{ marginTop: "80px" }}
+                    >
+                        <InfoIcon
+                            className="h-[32px] w-[32px]"
+                            aria-hidden
+                            style={{
+                                marginBottom: "8px",
+                                color: "var(--achromatic-500)",
+                            }}
+                        />
+                        <p
+                            className="title-3"
+                            style={{
+                                marginBottom: "4px",
+                                color: "var(--achromatic-500)",
+                            }}
+                        >
+                            아직 거래 내역이 없어요
+                        </p>
+                        <p className="body-3" style={{ color: "var(--achromatic-500)", textAlign: "center" }}>
+                            AI가 매수, 매도를 판단하면
+                            <br />
+                            이곳에 거래 내역이 표시돼요.
+                        </p>
+                    </div>
                 ) : (
                     entries.map((day) => (
                         <div key={day.date} className="flex flex-col gap-3">
@@ -973,6 +1087,8 @@ export default function StockDetail({
     initialInvestment,
     onBack,
     onSimulatedHoldingsUpdate,
+    userCreatedAt,
+    userId,
 }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("top3");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
@@ -986,6 +1102,26 @@ export default function StockDetail({
     const [error, setError] = useState<string | null>(null);
     const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
     const [isBackendConnected, setIsBackendConnected] = useState(false);
+    const signupDate = useMemo(() => safeParseDate(userCreatedAt), [userCreatedAt]);
+    const referenceDate = useMemo(() => getReferenceDate(), []);
+    const defaultStartDate = useMemo(() => subtractDays(referenceDate, 30), [referenceDate]);
+    const tradingRangeStartDate = signupDate ?? defaultStartDate;
+    const tradingRangeStartStr = useMemo(
+        () => toDateOnlyString(tradingRangeStartDate) ?? toDateOnlyString(defaultStartDate) ?? "2025-01-01",
+        [tradingRangeStartDate, defaultStartDate],
+    );
+    const tradingRangeEndStr = useMemo(
+        () => toDateOnlyString(referenceDate) ?? "2025-01-01",
+        [referenceDate],
+    );
+    const tradingRangeEndDate = useMemo(
+        () => safeParseDate(tradingRangeEndStr),
+        [tradingRangeEndStr],
+    );
+    const tradingCacheKey = useMemo(() => {
+        const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
+        return buildTradingCacheKey(userId ?? null, stockName, modelType);
+    }, [userId, stockName, investmentStyle]);
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -1080,74 +1216,122 @@ export default function StockDetail({
 
     // 거래 내역 로드
     useEffect(() => {
+        let cancelled = false;
         const loadTradingHistory = async () => {
             try {
-
-                // 종목 코드 변환
                 const symbol = resolveStockSymbol(stockName) || "005930.KS";
-
-                // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
                 const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
+                const cacheKey = tradingCacheKey;
+                const rangeStartStr = tradingRangeStartStr || "2025-01-01";
+                const rangeEndStr = tradingRangeEndStr || rangeStartStr;
+                const rangeEndDate = tradingRangeEndDate;
+                const cachedData = cacheKey ? loadTradingSignalCache(cacheKey) : null;
 
-                // 12월 1일부터의 데이터만 요청 (요구사항에 따라 고정 날짜 사용)
-                const startDateStr = "2025-12-01";
-                const referenceDateISO = getReferenceDateISO();
-                const cacheKey = `${referenceDateISO}_${symbol}_${modelType}_${initialInvestment}`;
+                let signals: HistoricalSignalEntry[] =
+                    Array.isArray(cachedData?.signals) && cachedData.signals.length > 0
+                        ? cachedData.signals
+                        : [];
+                let lastFetchedDateStr = cachedData?.lastFetchedDate ?? getLastSignalDate(signals);
 
-                const tradingCache = loadTradingHistoryCache();
-                const cachedEntry = tradingCache?.[cacheKey];
-                if (cachedEntry?.data) {
-                    const cachedHistory = Array.isArray(cachedEntry.data)
-                        ? cachedEntry.data
-                        : cachedEntry.data.history;
-                    const cachedSummary = Array.isArray(cachedEntry.data)
-                        ? summarizeTradingHistoryEntries(cachedEntry.data)
-                        : cachedEntry.data.summary;
-                    setTradingHistory(cachedHistory);
+                if (cachedData?.history?.length) {
+                    setTradingHistory(cachedData.history);
+                    const cachedSummary =
+                        cachedData.summary ??
+                        summarizeTradingHistoryEntries(cachedData.history);
                     onSimulatedHoldingsUpdate?.(stockName, cachedSummary);
+                }
+
+                const nextFetchDateStr = determineNextFetchDate(rangeStartStr, lastFetchedDateStr, rangeEndDate);
+                if (nextFetchDateStr) {
+                    try {
+                        const fetchedSignals = await api.getAIHistory(modelType, nextFetchDateStr);
+                        setIsBackendConnected(true);
+                        const normalizedNewSignals = normalizeHistoricalSignals(
+                            fetchedSignals as HistoricalSignalEntry[],
+                            rangeEndStr
+                        );
+                        if (normalizedNewSignals.length > 0) {
+                            signals = mergeHistoricalSignals(signals, normalizedNewSignals);
+                            lastFetchedDateStr = normalizedNewSignals[normalizedNewSignals.length - 1].date;
+                        }
+                    } catch (fetchError) {
+                        console.warn("AI 거래 히스토리 로딩 실패:", fetchError);
+                        setIsBackendConnected(false);
+                    }
+                }
+
+                signals = signals.filter((entry) => entry.date >= rangeStartStr && entry.date <= rangeEndStr);
+
+                if (!signals.length) {
                     return;
                 }
 
-                // AI 히스토리와 주가 데이터 동시 가져오기
-                const [aiHistory, stockHistory] = await Promise.all([
-                    api.getAIHistory(modelType, startDateStr),
-                    api.getStockHistory(symbol, 30)
-                ]);
+                const startDateForHistory = safeParseDate(rangeStartStr) ?? safeParseDate(signals[0].date);
+                const endDateForHistory = rangeEndDate ?? safeParseDate(getLastSignalDate(signals) ?? "");
+                const diffDays =
+                    startDateForHistory && endDateForHistory
+                        ? Math.max(
+                              30,
+                              Math.ceil((endDateForHistory.getTime() - startDateForHistory.getTime()) / DAY_MS) + 2
+                          )
+                        : 30;
 
-                // 거래 내역 계산
-                const history = calculateTradingHistory(aiHistory, stockHistory, initialInvestment);
+                const stockHistory = await api.getStockHistory(symbol, diffDays);
+                setIsBackendConnected(true);
+                const history = calculateTradingHistory(signals, stockHistory, initialInvestment);
+                const filteredHistory = filterTradingHistoryToActionDays(history);
                 const summary = summarizeTradingHistoryEntries(history);
-                setTradingHistory(history);
+                if (cancelled) {
+                    return;
+                }
+                setTradingHistory(filteredHistory);
                 onSimulatedHoldingsUpdate?.(stockName, summary);
-                saveTradingHistoryCacheEntry(cacheKey, { history, summary });
+                if (cacheKey) {
+                    saveTradingSignalCache(cacheKey, {
+                        signals,
+                        history: filteredHistory,
+                        summary,
+                        lastFetchedDate: lastFetchedDateStr ?? rangeEndStr,
+                    });
+                }
             } catch (error) {
                 console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
-                // 폴백: Mock 데이터 사용
                 const priceSeries = generateMockPriceSeries(stockName);
                 const actionPlan = generateRandomActions(stockName, priceSeries.length || 5);
                 const { history } = simulateTradingHistory(initialInvestment, priceSeries, actionPlan);
-                
-                // Mock 데이터의 날짜를 실제 날짜 형식으로 변환
                 const today = new Date();
                 const updatedHistory = history.map((day, index) => {
                     const date = new Date(today);
                     date.setDate(date.getDate() - index);
-                    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD 형식
-                    
+                    const dateStr = date.toISOString().split("T")[0];
+
                     return {
                         ...day,
                         date: dateStr,
                     };
                 });
-                
-                setTradingHistory(updatedHistory);
+
+                const filteredFallback = filterTradingHistoryToActionDays(updatedHistory);
+                setTradingHistory(filteredFallback);
                 const summary = summarizeTradingHistoryEntries(updatedHistory);
                 onSimulatedHoldingsUpdate?.(stockName, summary);
             }
         };
 
         loadTradingHistory();
-    }, [stockName, investmentStyle, initialInvestment, onSimulatedHoldingsUpdate]);
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        stockName,
+        investmentStyle,
+        initialInvestment,
+        tradingRangeStartStr,
+        tradingRangeEndStr,
+        tradingRangeEndDate,
+        tradingCacheKey,
+        onSimulatedHoldingsUpdate,
+    ]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
