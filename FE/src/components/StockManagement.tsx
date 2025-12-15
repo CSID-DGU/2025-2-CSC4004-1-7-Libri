@@ -15,6 +15,8 @@ interface StockManagementProps {
     onSelectStock?: (stockName: string) => void;
 }
 
+const formatNumber = (value: number) => value.toLocaleString();
+
 const formatProfitText = (profit: number, profitRate: number) => {
     if (profit === 0 && profitRate === 0) {
         return {
