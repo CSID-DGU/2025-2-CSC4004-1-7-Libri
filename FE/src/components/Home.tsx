@@ -42,19 +42,36 @@ interface HomeProps {
 const formatNumber = (value: number) => value.toLocaleString();
 
 const formatProfitText = (profit: number, profitRate: number, zeroColor = "var(--component-main)") => {
-        if (profit === 0 && profitRate === 0) {
-            return {
-                text: `0 (0%)`,
-                color: zeroColor,
-            };
-        }
-        const positive = profit >= 0;
-        const sign = positive ? "+" : "";
+    if (profit === 0 && profitRate === 0) {
         return {
-            text: `${sign}${formatNumber(profit)} (${sign}${profitRate.toFixed(1)}%)`,
-            color: positive ? "#f3646f" : "#2563eb",
+            text: `0 (0%)`,
+            color: zeroColor,
         };
+    }
+    const positive = profit >= 0;
+    const sign = positive ? "+" : "";
+    return {
+        text: `${sign}${formatNumber(profit)} (${sign}${profitRate.toFixed(1)}%)`,
+        color: positive ? "#f3646f" : "#2563eb",
     };
+};
+
+function getPriceReferenceDate(now = new Date()) {
+    const cutoffHour = 20;
+    const cutoffMinute = 30;
+    const afterCutoff =
+        now.getHours() > cutoffHour ||
+        (now.getHours() === cutoffHour && now.getMinutes() >= cutoffMinute);
+    const referenceDate = new Date(now);
+    if (!afterCutoff) {
+        referenceDate.setDate(referenceDate.getDate() - 1);
+    }
+    return referenceDate;
+}
+
+function getPriceReferenceDateString(now = new Date()) {
+    return getPriceReferenceDate(now).toISOString().split("T")[0];
+}
 
 function HomeHeader({ onOpenSettings }: { onOpenSettings: () => void }) {
     return (
@@ -436,27 +453,17 @@ export default function Home({
         };
     }, [userId]);
 
-    const effectiveStocks = stocks;
+    const effectiveStocks = useMemo(() => {
+        if (portfolioStocks.length > 0) {
+            return portfolioStocks;
+        }
+        return stocks;
+    }, [portfolioStocks, stocks]);
+
     const [adjustedStocks, summaryStockName] = useMemo(() => {
-        const adjusted = effectiveStocks.map((stock) => {
-            const summary = simulatedHoldings[stock.name];
-            if (!summary) {
-                return stock;
-            }
-            const baseQuantity = stock.quantity ?? 0;
-            const adjustedQuantity = baseQuantity + summary.netShares;
-            const unitPrice = summary.lastTradePrice ?? summary.averagePrice ?? stock.averagePrice ?? 0;
-            const totalValue = Math.max(adjustedQuantity, 0) * unitPrice;
-            return {
-                ...stock,
-                quantity: Math.max(adjustedQuantity, 0),
-                averagePrice: unitPrice,
-                totalValue,
-            };
-        });
-        const firstName = adjusted[0]?.name || "삼성전자";
-        return [adjusted, firstName] as const;
-    }, [effectiveStocks, simulatedHoldings]);
+        const firstName = effectiveStocks[0]?.name || "삼성전자";
+        return [effectiveStocks, firstName] as const;
+    }, [effectiveStocks]);
     const effectiveInitialInvestment = (() => {
         if (typeof portfolioInitialInvestment === "number" && !Number.isNaN(portfolioInitialInvestment)) {
             return portfolioInitialInvestment;
@@ -503,21 +510,30 @@ export default function Home({
                         // 백엔드 연결 성공
                         setIsBackendConnected(true);
 
-                        const latestEntry = [...stockHistory].sort((a: any, b: any) => a.date.localeCompare(b.date)).at(-1);
-                        const latestClose = latestEntry?.close ?? 0;
+                        const normalizedHistory = stockHistory
+                            .map((entry: any) => ({
+                                ...entry,
+                                dateOnly: typeof entry.date === "string" ? entry.date.split("T")[0] : "",
+                            }))
+                            .filter((entry: any) => entry.dateOnly);
+                        const historyByDate = new Map(normalizedHistory.map((entry: any) => [entry.dateOnly, entry]));
+                        const referenceDateStr = getPriceReferenceDateString();
+                        const referenceEntry = historyByDate.get(referenceDateStr);
+                        const latestEntry = normalizedHistory.at(-1);
+                        const comparisonClose = referenceEntry?.close ?? latestEntry?.close ?? 0;
                         const quantity = stock.quantity ?? 0;
                         const averagePrice = stock.averagePrice ?? 0;
                         let profit = 0;
                         let profitRate = 0;
                         if (quantity > 0 && averagePrice > 0) {
-                            profit = (latestClose - averagePrice) * quantity;
-                            profitRate = ((latestClose - averagePrice) / averagePrice) * 100;
+                            profit = (comparisonClose - averagePrice) * quantity;
+                            profitRate = ((comparisonClose - averagePrice) / averagePrice) * 100;
                         }
                         
                         performanceMap[stock.name] = { 
                             profit, 
                             profitRate,
-                            latestPrice: latestClose,
+                            latestPrice: comparisonClose,
                         };
                     } catch (error) {
                         console.warn(`${stock.name} 데이터 로딩 실패, Mock 데이터 사용:`, error);
@@ -538,25 +554,14 @@ export default function Home({
                 const stockList = adjustedStocks.length > 0 ? adjustedStocks : [{ name: summaryStockName, quantity: 0, averagePrice: 0, totalValue: 0 }];
                 stockList.forEach(stock => {
                     const basePerformance = generateMockPerformance(stock.name);
-                    const simulated = simulatedHoldings[stock.name];
-                    if (simulated) {
-                        mockPerformance[stock.name] = {
-                            profit: simulated.realizedProfit,
-                            profitRate:
-                                effectiveInitialInvestment > 0
-                                    ? (simulated.realizedProfit / effectiveInitialInvestment) * 100
-                                    : 0,
-                        };
-                    } else {
-                        mockPerformance[stock.name] = basePerformance;
-                    }
+                    mockPerformance[stock.name] = basePerformance;
                 });
                 setStockPerformance(mockPerformance);
             }
         };
 
         loadStockPerformance();
-    }, [adjustedStocks, summaryStockName, effectiveInitialInvestment, generateMockPerformance, simulatedHoldings]);
+    }, [adjustedStocks, summaryStockName, effectiveInitialInvestment, generateMockPerformance]);
 
     const aiTradeProfit = useMemo(
         () => Object.values(simulatedHoldings).reduce((acc, summary) => acc + (summary?.realizedProfit ?? 0), 0),
