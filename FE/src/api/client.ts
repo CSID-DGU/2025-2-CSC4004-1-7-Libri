@@ -84,9 +84,9 @@ export const api = {
   updatePortfolio: (
     userId: number,
     payload: {
-      initial_investment: number;
-      investment_style: string;
-      holdings: Array<{
+      initial_investment?: number;
+      investment_style?: string;
+      holdings?: Array<{
         symbol: string;
         quantity: number;
         avg_price: number;
