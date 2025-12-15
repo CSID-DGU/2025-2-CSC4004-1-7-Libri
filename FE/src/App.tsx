@@ -576,7 +576,7 @@ export default function App() {
         goBack(page);
     };
 
-    const handleStockDetailSave = async ({
+    const handleStockDetailLocalUpdate = async ({
         quantity,
         averagePrice,
     }: {
@@ -584,7 +584,6 @@ export default function App() {
         averagePrice: number;
     }) => {
         if (!state.selectedStockName) return;
-        const previousStocks = state.stocks.map((stock) => ({ ...stock }));
         dispatch({
             type: "UPDATE_STOCK",
             stockName: state.selectedStockName,
@@ -592,46 +591,8 @@ export default function App() {
             averagePrice,
         });
 
-        if (!state.userId) {
-            return;
-        }
-
-        try {
-            const holdingsPayload = state.stocks
-                .map((stock) => {
-                    const symbol = resolveStockSymbol(stock.name);
-                    if (!symbol) {
-                        return null;
-                    }
-                    const nextQuantity = stock.name === state.selectedStockName ? quantity : stock.quantity;
-                    const nextAveragePrice = stock.name === state.selectedStockName ? averagePrice : stock.averagePrice;
-                    return {
-                        symbol,
-                        quantity: nextQuantity,
-                        avg_price: nextAveragePrice,
-                    };
-                })
-                .filter((holding): holding is { symbol: string; quantity: number; avg_price: number } => Boolean(holding));
-
-            if (!holdingsPayload.length) {
-                throw new Error("업데이트할 종목을 찾을 수 없습니다.");
-            }
-
-            const initialInvestmentValue = Number(state.initialInvestment) || 0;
-            const backendStyle = state.investmentStyle
-                ? mapDisplayStyleToBackend(state.investmentStyle) || state.investmentStyle
-                : "aggressive";
-
-            await api.updatePortfolio(state.userId, {
-                initial_investment: initialInvestmentValue,
-                investment_style: backendStyle,
-                holdings: holdingsPayload,
-            });
+        if (state.userId) {
             await hydrateStateFromBackend(state.userId);
-        } catch (error) {
-            console.error("종목 정보를 업데이트하지 못했습니다:", error);
-            dispatch({ type: "SET_STOCKS", stocks: previousStocks });
-            throw error instanceof Error ? error : new Error("종목 정보를 저장하지 못했습니다.");
         }
     };
 
@@ -726,16 +687,14 @@ export default function App() {
                 )}
                 {state.currentPage === "settings-stock-detail" && (
                     <StockManagementDetail
+                        userId={state.userId}
                         stock={
                             state.selectedStockName
                                 ? state.stocks.find((stock) => stock.name === state.selectedStockName)
                                 : undefined
                         }
                         onBack={() => handleCloseStockManagementDetail("settings-stocks")}
-                        onSave={async (data) => {
-                            await handleStockDetailSave(data);
-                            handleCloseStockManagementDetail("settings-stocks");
-                        }}
+                        onSave={handleStockDetailLocalUpdate}
                     />
                 )}
                 {state.currentPage === "add-stock" && (
