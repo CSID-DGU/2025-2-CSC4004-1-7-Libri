@@ -584,7 +584,7 @@ export default function App() {
         averagePrice: number;
     }) => {
         if (!state.selectedStockName) return;
-        const previousStocks = state.stocks;
+        const previousStocks = state.stocks.map((stock) => ({ ...stock }));
         dispatch({
             type: "UPDATE_STOCK",
             stockName: state.selectedStockName,
@@ -597,19 +597,35 @@ export default function App() {
         }
 
         try {
-            const symbol = resolveStockSymbol(state.selectedStockName);
-            if (!symbol) {
-                throw new Error("알 수 없는 종목입니다.");
+            const holdingsPayload = state.stocks
+                .map((stock) => {
+                    const symbol = resolveStockSymbol(stock.name);
+                    if (!symbol) {
+                        return null;
+                    }
+                    const nextQuantity = stock.name === state.selectedStockName ? quantity : stock.quantity;
+                    const nextAveragePrice = stock.name === state.selectedStockName ? averagePrice : stock.averagePrice;
+                    return {
+                        symbol,
+                        quantity: nextQuantity,
+                        avg_price: nextAveragePrice,
+                    };
+                })
+                .filter((holding): holding is { symbol: string; quantity: number; avg_price: number } => Boolean(holding));
+
+            if (!holdingsPayload.length) {
+                throw new Error("업데이트할 종목을 찾을 수 없습니다.");
             }
 
+            const initialInvestmentValue = Number(state.initialInvestment) || 0;
+            const backendStyle = state.investmentStyle
+                ? mapDisplayStyleToBackend(state.investmentStyle) || state.investmentStyle
+                : "aggressive";
+
             await api.updatePortfolio(state.userId, {
-                holdings: [
-                    {
-                        symbol,
-                        quantity,
-                        avg_price: averagePrice,
-                    },
-                ],
+                initial_investment: initialInvestmentValue,
+                investment_style: backendStyle,
+                holdings: holdingsPayload,
             });
             await hydrateStateFromBackend(state.userId);
         } catch (error) {
