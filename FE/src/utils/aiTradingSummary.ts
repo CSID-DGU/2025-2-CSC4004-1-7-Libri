@@ -8,6 +8,17 @@ import {
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
 
+const SUPPORTED_SYMBOLS = new Set(["005930.KS", "005930"]);
+const SUPPORTED_NAMES = new Set(["삼성전자"]);
+
+export function isStockSupported(stockName: string): boolean {
+    const trimmed = stockName?.trim();
+    if (SUPPORTED_NAMES.has(trimmed)) return true;
+    const symbol = resolveStockSymbol(trimmed);
+    if (!symbol) return false;
+    return SUPPORTED_SYMBOLS.has(symbol);
+}
+
 export interface TradingSummary {
     netShares: number;
     averagePrice: number;
@@ -333,6 +344,13 @@ export async function fetchAiTradingSummary({
     userCreatedAt,
     userId,
 }: FetchAiTradingSummaryParams): Promise<FetchAiTradingSummaryResult> {
+    if (!isStockSupported(stockName)) {
+        return {
+            history: [],
+            summary: null,
+            backendConnected: false,
+        };
+    }
     const referenceDate = getReferenceDate();
     const defaultStartDate = subtractDays(referenceDate, 30);
     const tradingRangeStartDate = safeParseDate(userCreatedAt) ?? defaultStartDate;
