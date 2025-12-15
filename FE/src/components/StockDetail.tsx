@@ -11,14 +11,8 @@ import { getIndicatorsByStyle, type IndicatorInfo } from "../data/indicatorsBySt
 import { type InvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
 import { resolveStockSymbol } from "@/lib/stocks";
-import {
-    DayTrading,
-    type SimulatedTrade,
-    generateMockPriceSeries,
-    generateRandomActions,
-    simulateTradingHistory,
-} from "@/utils/aiTradingSimulation";
-
+import { DayTrading, type SimulatedTrade } from "@/utils/aiTradingSimulation";
+import { fetchAiTradingSummary, getReferenceDate, type TradingSummary } from "@/utils/aiTradingSummary";
 
 export type TabType = "top3" | "analysis" | "trading";
 
@@ -41,8 +35,6 @@ interface StockDetailProps {
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
 const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
-const AI_TRADING_SIGNAL_CACHE_PREFIX = "libri_ai_trading_signals_v1";
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 type XAIReference = {
     base?: string;
@@ -64,28 +56,6 @@ interface PredictionData {
     xaiFeatures: XAIReference[];
 }
 
-export interface TradingSummary {
-    netShares: number;
-    averagePrice: number;
-    lastTradePrice: number | null;
-    realizedProfit: number;
-    positionValue: number;
-}
-
-type HistoricalSignalEntry = {
-    date: string;
-    signal: number;
-    daily_return?: number;
-    strategy_return?: number;
-};
-
-interface TradingSignalCacheData {
-    signals: HistoricalSignalEntry[];
-    history: DayTrading[];
-    summary: TradingSummary | null;
-    lastFetchedDate?: string;
-}
-
 function isErrorPrediction(data: PredictionData | undefined): boolean {
     if (!data) return true;
     const explanation = (data.aiExplanation || "").toLowerCase();
@@ -95,158 +65,6 @@ function isErrorPrediction(data: PredictionData | undefined): boolean {
 }
 
 // 거래 내역 계산 함수
-function calculateTradingHistory(
-    aiHistory: Array<{ date: string; signal: number; daily_return?: number; strategy_return?: number }>,
-    stockHistory: Array<{ date: string; open: number; high: number; low: number; close: number }>,
-    initialCapital: number
-): DayTrading[] {
-    const history: DayTrading[] = [];
-    let cash = initialCapital;
-    let shares = 0;
-    let avgPrice = 0;
-
-    // 주가 데이터를 날짜별로 매핑
-    const priceMap = new Map(
-        stockHistory.map(item => [item.date.split('T')[0], item])
-    );
-
-    aiHistory.forEach((signal) => {
-        const dateStr = signal.date;
-        const priceData = priceMap.get(dateStr);
-        
-        if (!priceData) return;
-
-        const trades: SimulatedTrade[] = [];
-
-        // signal: 0 = BUY (Long), 1 = SELL (Short), 2 = HOLD
-        if (signal.signal === 0) {
-            // 매수 시그널
-            const buyPrice = priceData.low || priceData.close || priceData.open; // 당일 최저가로 매수
-            const maxShares = Math.floor(cash / buyPrice);
-
-            if (maxShares > 0) {
-                // 매수 가능
-                const buyShares = maxShares;
-                const cost = buyShares * buyPrice;
-                
-                // 평균 단가 계산
-                if (shares > 0) {
-                    avgPrice = ((avgPrice * shares) + cost) / (shares + buyShares);
-                } else {
-                    avgPrice = buyPrice;
-                }
-                
-                shares += buyShares;
-                cash -= cost;
-
-                trades.push({
-                    type: "buy",
-                    quantity: buyShares,
-                    pricePerShare: buyPrice,
-                    time: dateStr,
-                });
-            } else {
-                // 매수 불가 (자금 부족)
-                trades.push({
-                    type: "hold",
-                    quantity: 0,
-                    pricePerShare: 0,
-                    time: dateStr,
-                    reason: "매수 자금이 부족합니다.",
-                });
-            }
-        } else if (signal.signal === 1) {
-            // 매도 시그널
-            if (shares > 0) {
-                const sellPrice = priceData.high || priceData.close || priceData.open; // 당일 최고가로 매도
-                const sellShares = shares;
-                const revenue = sellShares * sellPrice;
-                const profit = revenue - (avgPrice * sellShares);
-                const profitPercent = ((sellPrice - avgPrice) / avgPrice) * 100;
-
-                cash += revenue;
-                shares = 0;
-                avgPrice = 0;
-
-                trades.push({
-                    type: "sell",
-                    quantity: sellShares,
-                    pricePerShare: sellPrice,
-                    time: dateStr,
-                    profit: Math.round(profit),
-                    profitPercent: Math.round(profitPercent * 10) / 10,
-                });
-            } else {
-                // 매도 불가 (보유 주식 없음)
-                trades.push({
-                    type: "hold",
-                    quantity: 0,
-                    pricePerShare: 0,
-                    time: dateStr,
-                    reason: "보유 중인 주식이 없습니다.",
-                });
-            }
-        } else {
-            // 보유 시그널
-            trades.push({
-                type: "hold",
-                quantity: 0,
-                pricePerShare: 0,
-                time: dateStr,
-                reason: "리브리 전략에 따라 변동이 없습니다.",
-            });
-        }
-
-        if (trades.length > 0) {
-            history.push({
-                date: dateStr,
-                trades,
-            });
-        }
-    });
-
-    return history;
-}
-
-function summarizeTradingHistoryEntries(history: DayTrading[]): TradingSummary {
-    let shares = 0;
-    let totalCost = 0;
-    let realizedProfit = 0;
-    let lastTradePrice: number | null = null;
-
-    history.forEach((day) => {
-        day.trades.forEach((trade) => {
-            if (trade.type === "buy") {
-                const cost = trade.quantity * trade.pricePerShare;
-                totalCost += cost;
-                shares += trade.quantity;
-                lastTradePrice = trade.pricePerShare;
-            } else if (trade.type === "sell") {
-                const sellQuantity = trade.quantity;
-                const averageCost = shares > 0 ? totalCost / shares : 0;
-                const costBasis = averageCost * sellQuantity;
-                totalCost -= costBasis;
-                shares -= sellQuantity;
-                realizedProfit += trade.profit ?? 0;
-                lastTradePrice = trade.pricePerShare;
-            }
-        });
-    });
-
-    if (shares < 0) shares = 0;
-    if (totalCost < 0) totalCost = 0;
-    const averagePrice = shares > 0 ? totalCost / shares : lastTradePrice ?? 0;
-    const positionValue = shares > 0 ? shares * (lastTradePrice ?? averagePrice) : 0;
-
-    return {
-        netShares: shares,
-        positionValue,
-        averagePrice,
-        lastTradePrice,
-        realizedProfit,
-    };
-}
-
 function SparklineChart({ stockSymbol }: { stockSymbol: string }) {
     const chartContainerRef = useRef<HTMLDivElement>(null);
     const chartInstanceRef = useRef<ReturnType<typeof createChart> | null>(null);
@@ -585,152 +403,6 @@ function IndicatorSection({ investmentStyle }: { investmentStyle: InvestmentStyl
             </div>
         </section>
     );
-}
-
-function getReferenceDate(now = new Date()) {
-    const cutoffHour = 20;
-    const cutoffMinute = 30;
-    const afterCutoff =
-        now.getHours() > cutoffHour ||
-        (now.getHours() === cutoffHour && now.getMinutes() >= cutoffMinute);
-    const referenceDate = new Date(now);
-    if (!afterCutoff) {
-        referenceDate.setDate(referenceDate.getDate() - 1);
-    }
-    return referenceDate;
-}
-
-function safeParseDate(value?: string | null): Date | null {
-    if (!value) return null;
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) {
-        return null;
-    }
-    return parsed;
-}
-
-function toDateOnlyString(date: Date | null): string | null {
-    if (!date) return null;
-    return date.toISOString().split("T")[0];
-}
-
-function subtractDays(date: Date, days: number) {
-    const copy = new Date(date);
-    copy.setDate(copy.getDate() - days);
-    return copy;
-}
-
-function addDays(date: Date, days: number) {
-    const copy = new Date(date);
-    copy.setDate(copy.getDate() + days);
-    return copy;
-}
-
-function normalizeCacheKeyPart(value: string) {
-    return value.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
-}
-
-function buildTradingCacheKey(userId: number | null | undefined, stockName: string, modelType: string) {
-    const idPart = userId ? String(userId) : "guest";
-    const stockPart = normalizeCacheKeyPart(stockName || "stock");
-    const modelPart = normalizeCacheKeyPart(modelType || "model");
-    return `${AI_TRADING_SIGNAL_CACHE_PREFIX}_${idPart}_${stockPart}_${modelPart}`;
-}
-
-function loadTradingSignalCache(key: string): TradingSignalCacheData | null {
-    try {
-        const raw = localStorage.getItem(key);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-            parsed.signals = Array.isArray(parsed.signals) ? parsed.signals : [];
-            parsed.history = Array.isArray(parsed.history) ? parsed.history : [];
-            return parsed as TradingSignalCacheData;
-        }
-    } catch {
-        // ignore
-    }
-    return null;
-}
-
-function saveTradingSignalCache(key: string, data: TradingSignalCacheData) {
-    try {
-        localStorage.setItem(key, JSON.stringify(data));
-    } catch {
-        // ignore
-    }
-}
-
-function normalizeHistoricalSignals(
-    signals: HistoricalSignalEntry[],
-    limitDate?: string | null
-) {
-    if (!Array.isArray(signals)) return [];
-    return signals
-        .map((entry) => {
-            const dateOnly = entry.date?.split("T")[0] ?? entry.date;
-            return dateOnly
-                ? { ...entry, date: dateOnly }
-                : null;
-        })
-        .filter((entry): entry is HistoricalSignalEntry => {
-            if (!entry) return false;
-            if (limitDate) {
-                return entry.date <= limitDate;
-            }
-            return true;
-        })
-        .sort((a, b) => a.date.localeCompare(b.date));
-}
-
-function mergeHistoricalSignals(
-    existing: HistoricalSignalEntry[],
-    updates: HistoricalSignalEntry[]
-) {
-    const map = new Map<string, HistoricalSignalEntry>();
-    existing.forEach((entry) => {
-        map.set(entry.date, entry);
-    });
-    updates.forEach((entry) => {
-        map.set(entry.date, entry);
-    });
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-}
-
-function getLastSignalDate(signals: HistoricalSignalEntry[]): string | null {
-    if (!signals.length) return null;
-    return signals[signals.length - 1].date;
-}
-
-function determineNextFetchDate(
-    rangeStartStr: string | null,
-    lastFetchedDateStr: string | null,
-    rangeEndDate: Date | null
-): string | null {
-    if (!rangeEndDate) {
-        return rangeStartStr;
-    }
-    if (!lastFetchedDateStr) {
-        return rangeStartStr;
-    }
-    const lastFetched = safeParseDate(lastFetchedDateStr);
-    if (!lastFetched) {
-        return rangeStartStr;
-    }
-    const nextDate = addDays(lastFetched, 1);
-    if (nextDate > rangeEndDate) {
-        return null;
-    }
-    return toDateOnlyString(nextDate);
-}
-
-function filterTradingHistoryToActionDays(history: DayTrading[]) {
-    return history
-        .map((day) => ({
-            ...day,
-            trades: day.trades.filter((trade) => trade.type === "buy" || trade.type === "sell"),
-        }))
-        .filter((day) => day.trades.length > 0);
 }
 
 function getTop3ReferenceLabel(now = new Date()) {
@@ -1102,26 +774,6 @@ export default function StockDetail({
     const [error, setError] = useState<string | null>(null);
     const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
     const [isBackendConnected, setIsBackendConnected] = useState(false);
-    const signupDate = useMemo(() => safeParseDate(userCreatedAt), [userCreatedAt]);
-    const referenceDate = useMemo(() => getReferenceDate(), []);
-    const defaultStartDate = useMemo(() => subtractDays(referenceDate, 30), [referenceDate]);
-    const tradingRangeStartDate = signupDate ?? defaultStartDate;
-    const tradingRangeStartStr = useMemo(
-        () => toDateOnlyString(tradingRangeStartDate) ?? toDateOnlyString(defaultStartDate) ?? "2025-01-01",
-        [tradingRangeStartDate, defaultStartDate],
-    );
-    const tradingRangeEndStr = useMemo(
-        () => toDateOnlyString(referenceDate) ?? "2025-01-01",
-        [referenceDate],
-    );
-    const tradingRangeEndDate = useMemo(
-        () => safeParseDate(tradingRangeEndStr),
-        [tradingRangeEndStr],
-    );
-    const tradingCacheKey = useMemo(() => {
-        const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
-        return buildTradingCacheKey(userId ?? null, stockName, modelType);
-    }, [userId, stockName, investmentStyle]);
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -1217,121 +869,35 @@ export default function StockDetail({
     // 거래 내역 로드
     useEffect(() => {
         let cancelled = false;
-        const loadTradingHistory = async () => {
+
+        const loadTradingSummary = async () => {
             try {
-                const symbol = resolveStockSymbol(stockName) || "005930.KS";
-                const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
-                const cacheKey = tradingCacheKey;
-                const rangeStartStr = tradingRangeStartStr || "2025-01-01";
-                const rangeEndStr = tradingRangeEndStr || rangeStartStr;
-                const rangeEndDate = tradingRangeEndDate;
-                const cachedData = cacheKey ? loadTradingSignalCache(cacheKey) : null;
-
-                let signals: HistoricalSignalEntry[] =
-                    Array.isArray(cachedData?.signals) && cachedData.signals.length > 0
-                        ? cachedData.signals
-                        : [];
-                let lastFetchedDateStr = cachedData?.lastFetchedDate ?? getLastSignalDate(signals);
-
-                if (cachedData?.history?.length) {
-                    setTradingHistory(cachedData.history);
-                    const cachedSummary =
-                        cachedData.summary ??
-                        summarizeTradingHistoryEntries(cachedData.history);
-                    onSimulatedHoldingsUpdate?.(stockName, cachedSummary);
-                }
-
-                const nextFetchDateStr = determineNextFetchDate(rangeStartStr, lastFetchedDateStr, rangeEndDate);
-                if (nextFetchDateStr) {
-                    try {
-                        const fetchedSignals = await api.getAIHistory(modelType, nextFetchDateStr);
-                        setIsBackendConnected(true);
-                        const normalizedNewSignals = normalizeHistoricalSignals(
-                            fetchedSignals as HistoricalSignalEntry[],
-                            rangeEndStr
-                        );
-                        if (normalizedNewSignals.length > 0) {
-                            signals = mergeHistoricalSignals(signals, normalizedNewSignals);
-                            lastFetchedDateStr = normalizedNewSignals[normalizedNewSignals.length - 1].date;
-                        }
-                    } catch (fetchError) {
-                        console.warn("AI 거래 히스토리 로딩 실패:", fetchError);
-                        setIsBackendConnected(false);
-                    }
-                }
-
-                signals = signals.filter((entry) => entry.date >= rangeStartStr && entry.date <= rangeEndStr);
-
-                if (!signals.length) {
-                    return;
-                }
-
-                const startDateForHistory = safeParseDate(rangeStartStr) ?? safeParseDate(signals[0].date);
-                const endDateForHistory = rangeEndDate ?? safeParseDate(getLastSignalDate(signals) ?? "");
-                const diffDays =
-                    startDateForHistory && endDateForHistory
-                        ? Math.max(
-                              30,
-                              Math.ceil((endDateForHistory.getTime() - startDateForHistory.getTime()) / DAY_MS) + 2
-                          )
-                        : 30;
-
-                const stockHistory = await api.getStockHistory(symbol, diffDays);
-                setIsBackendConnected(true);
-                const history = calculateTradingHistory(signals, stockHistory, initialInvestment);
-                const filteredHistory = filterTradingHistoryToActionDays(history);
-                const summary = summarizeTradingHistoryEntries(history);
-                if (cancelled) {
-                    return;
-                }
-                setTradingHistory(filteredHistory);
-                onSimulatedHoldingsUpdate?.(stockName, summary);
-                if (cacheKey) {
-                    saveTradingSignalCache(cacheKey, {
-                        signals,
-                        history: filteredHistory,
-                        summary,
-                        lastFetchedDate: lastFetchedDateStr ?? rangeEndStr,
-                    });
-                }
-            } catch (error) {
-                console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
-                const priceSeries = generateMockPriceSeries(stockName);
-                const actionPlan = generateRandomActions(stockName, priceSeries.length || 5);
-                const { history } = simulateTradingHistory(initialInvestment, priceSeries, actionPlan);
-                const today = new Date();
-                const updatedHistory = history.map((day, index) => {
-                    const date = new Date(today);
-                    date.setDate(date.getDate() - index);
-                    const dateStr = date.toISOString().split("T")[0];
-
-                    return {
-                        ...day,
-                        date: dateStr,
-                    };
+                const result = await fetchAiTradingSummary({
+                    stockName,
+                    investmentStyle,
+                    initialInvestment,
+                    userCreatedAt,
+                    userId,
                 });
-
-                const filteredFallback = filterTradingHistoryToActionDays(updatedHistory);
-                setTradingHistory(filteredFallback);
-                const summary = summarizeTradingHistoryEntries(updatedHistory);
-                onSimulatedHoldingsUpdate?.(stockName, summary);
+                if (cancelled) return;
+                setIsBackendConnected(result.backendConnected);
+                setTradingHistory(result.history);
+                onSimulatedHoldingsUpdate?.(stockName, result.summary);
+            } catch (error) {
+                console.error("AI 거래 요약 로딩 실패:", error);
+                if (!cancelled) {
+                    setIsBackendConnected(false);
+                    setTradingHistory([]);
+                    onSimulatedHoldingsUpdate?.(stockName, null);
+                }
             }
         };
 
-        loadTradingHistory();
+        loadTradingSummary();
         return () => {
             cancelled = true;
         };
-    }, [
-        stockName,
-        investmentStyle,
-        initialInvestment,
-        tradingRangeStartStr,
-        tradingRangeEndStr,
-        tradingRangeEndDate,
-        tradingCacheKey,
-        onSimulatedHoldingsUpdate,
-    ]);
+    }, [stockName, investmentStyle, initialInvestment, userCreatedAt, userId, onSimulatedHoldingsUpdate]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
