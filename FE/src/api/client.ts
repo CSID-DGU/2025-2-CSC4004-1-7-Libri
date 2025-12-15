@@ -81,6 +81,23 @@ export const api = {
   getPortfolio: (userId: number) =>
     apiCall(`/portfolio/${userId}`),
 
+  updatePortfolio: (
+    userId: number,
+    payload: {
+      initial_investment: number;
+      investment_style: string;
+      holdings: Array<{
+        symbol: string;
+        quantity: number;
+        avg_price: number;
+      }>;
+    },
+  ) =>
+    apiCall(`/portfolio/${userId}`, {
+      method: 'POST',
+      body: payload,
+    }),
+
   addHolding: (userId: number, holding: {
     symbol: string;
     quantity: number;

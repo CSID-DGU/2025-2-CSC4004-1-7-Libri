@@ -55,6 +55,7 @@ interface State {
     userId: number | null;
     userEmail: string | null;
     onboardingCompleted: boolean;
+    userCreatedAt: string | null;
 }
 
 type Action =
@@ -68,6 +69,7 @@ type Action =
     | { type: "ADD_STOCK" }
     | { type: "RESET_ADD_STOCK_FORM" }
     | { type: "SET_USER"; userId: number; email: string }
+    | { type: "SET_USER_CREATED_AT"; createdAt: string | null }
     | { type: "SET_ONBOARDING_STATUS"; completed: boolean }
     | { type: "LOGOUT" }
     | { type: "HYDRATE_FROM_STORAGE"; payload: Partial<Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">> };
@@ -82,6 +84,7 @@ const initialState: State = {
     userId: null,
     userEmail: null,
     onboardingCompleted: false,
+    userCreatedAt: null,
 };
 
 function createStock(form: FormData, logoUrl?: string): Stock {
@@ -196,6 +199,8 @@ function reducer(state: State, action: Action): State {
             };
         case "SET_USER":
             return { ...state, userId: action.userId, userEmail: action.email };
+        case "SET_USER_CREATED_AT":
+            return { ...state, userCreatedAt: action.createdAt };
         case "SET_ONBOARDING_STATUS":
             return { ...state, onboardingCompleted: action.completed };
         case "LOGOUT":
@@ -243,6 +248,9 @@ export default function App() {
 
         if (typeof userInfo?.onboarding_completed === "boolean") {
             dispatch({ type: "SET_ONBOARDING_STATUS", completed: Boolean(userInfo.onboarding_completed) });
+        }
+        if (userInfo?.created_at) {
+            dispatch({ type: "SET_USER_CREATED_AT", createdAt: userInfo.created_at });
         }
 
         try {
@@ -362,6 +370,12 @@ export default function App() {
             const userInfo = await api.getUser(user.user_id);
             const completed = Boolean(userInfo?.onboarding_completed);
             dispatch({ type: "SET_ONBOARDING_STATUS", completed });
+            if (userInfo?.created_at) {
+                dispatch({ type: "SET_USER_CREATED_AT", createdAt: userInfo.created_at });
+            }
+            if (userInfo?.created_at) {
+                dispatch({ type: "SET_USER_CREATED_AT", createdAt: userInfo.created_at });
+            }
 
             if (!completed) {
                 goToPage("onboarding");
@@ -563,6 +577,7 @@ export default function App() {
                         investmentStyle={(state.investmentStyle || "공격형") as InvestmentStyle}
                         onOpenSettings={() => goToPage("settings")}
                         userId={state.userId}
+                        userCreatedAt={state.userCreatedAt}
                     />
                 )}
                 {state.currentPage === "settings" && (
