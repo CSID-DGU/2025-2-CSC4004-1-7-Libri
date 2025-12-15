@@ -4,6 +4,7 @@ import LightningIcon from "@/assets/icons/lightning.svg?react";
 import ShieldIcon from "@/assets/icons/shield.svg?react";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 import { api } from "@/api/client";
+import { mapDisplayStyleToBackend } from "@/utils/investmentStyle";
 
 interface PortfolioSettingsProps {
     onBack?: () => void;
@@ -121,12 +122,14 @@ export default function PortfolioSettings({
 
     const handleSubmit = async () => {
         if (!parsedInvestmentAmount || !selectedStyle || !userId || submitting) return;
+        const backendStyle = mapDisplayStyleToBackend(selectedStyle);
+        if (!backendStyle) return;
         setSubmitting(true);
         setError(null);
         try {
             await api.updatePortfolio(userId, {
                 initial_investment: parsedInvestmentAmount,
-                investment_style: selectedStyle,
+                investment_style: backendStyle,
             });
             if (onSave) {
                 await onSave({ investmentAmount: parsedInvestmentAmount, investmentStyle: selectedStyle });
