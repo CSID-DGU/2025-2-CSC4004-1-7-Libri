@@ -30,6 +30,15 @@ interface StockPerformance {
 
 type StockPerformanceMap = Record<string, StockPerformance>;
 
+type StockHistoryEntry = {
+    date: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    [key: string]: unknown;
+};
+
 interface HomeProps {
     initialInvestment: number;
     stocks: Stock[];
@@ -507,13 +516,13 @@ export default function Home({
                         const symbol = resolveStockSymbol(stock.name) || "005930.KS";
                         
                         // 30일 전부터 데이터 가져오기
-                        const stockHistory = await api.getStockHistory(symbol, 30);
+                        const stockHistory = (await api.getStockHistory(symbol, 30)) as StockHistoryEntry[];
 
                         // 백엔드 연결 성공
                         setIsBackendConnected(true);
 
                         const normalizedHistory = stockHistory
-                            .map((entry: any) => ({
+                            .map((entry: StockHistoryEntry) => ({
                                 ...entry,
                                 dateOnly: typeof entry.date === "string" ? entry.date.split("T")[0] : "",
                             }))
