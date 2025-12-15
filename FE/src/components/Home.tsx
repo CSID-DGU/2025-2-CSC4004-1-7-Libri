@@ -3,7 +3,7 @@ import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
 import LogoIcon from "@/assets/icons/Logo.svg?react";
-import StockDetail, { type TradingSummary } from "./StockDetail";
+import StockDetail from "./StockDetail";
 import { api } from "@/api/client";
 import { mapSymbolToDisplayName, resolveStockSymbol } from "@/lib/stocks";
 import {
@@ -11,6 +11,7 @@ import {
     generateRandomActions,
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
+import { fetchAiTradingSummary, type TradingSummary, isStockSupported } from "@/utils/aiTradingSummary";
 import StockCard from "./StockCard";
 
 interface Stock {
@@ -397,6 +398,55 @@ export default function Home({
         const parsed = Number(initialInvestment);
         return Number.isNaN(parsed) ? 0 : parsed;
     })();
+    
+    useEffect(() => {
+        if (!adjustedStocks.length) {
+            setSimulatedHoldings({});
+            return;
+        }
+        let cancelled = false;
+
+        const preloadSummaries = async () => {
+            await Promise.all(
+                adjustedStocks.map(async (stock) => {
+                    if (!isStockSupported(stock.name)) {
+                        if (!cancelled) {
+                            handleSimulatedHoldingsUpdate(stock.name, null);
+                        }
+                        return;
+                    }
+                    try {
+                        const result = await fetchAiTradingSummary({
+                            stockName: stock.name,
+                            investmentStyle,
+                            initialInvestment: effectiveInitialInvestment,
+                            userCreatedAt,
+                            userId,
+                        });
+                        if (cancelled) return;
+                        handleSimulatedHoldingsUpdate(stock.name, result.summary);
+                    } catch (error) {
+                        console.warn("AI 거래 요약 선로딩 실패:", error);
+                        if (!cancelled) {
+                            handleSimulatedHoldingsUpdate(stock.name, null);
+                        }
+                    }
+                }),
+            );
+        };
+
+        preloadSummaries();
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        adjustedStocks,
+        investmentStyle,
+        effectiveInitialInvestment,
+        userCreatedAt,
+        userId,
+        handleSimulatedHoldingsUpdate,
+    ]);
     
     // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
     const generateMockPerformance = useMemo(() => {
