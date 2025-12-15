@@ -948,7 +948,33 @@ function TradingHistorySection({
             </div>
             <div className="flex flex-col gap-6">
                 {entries.length === 0 ? (
-                    <p className="text-xs text-[#9a9ea9]">거래 내역이 없습니다.</p>
+                    <div
+                        className="flex flex-col items-center text-center w-full text-[#9a9ea9]"
+                        style={{ marginTop: "80px" }}
+                    >
+                        <InfoIcon
+                            className="h-[32px] w-[32px]"
+                            aria-hidden
+                            style={{
+                                marginBottom: "8px",
+                                color: "var(--achromatic-500)",
+                            }}
+                        />
+                        <p
+                            className="title-3"
+                            style={{
+                                marginBottom: "4px",
+                                color: "var(--achromatic-500)",
+                            }}
+                        >
+                            아직 거래 내역이 없어요
+                        </p>
+                        <p className="body-3" style={{ color: "var(--achromatic-500)", textAlign: "center" }}>
+                            AI가 매수, 매도를 판단하면
+                            <br />
+                            이곳에 거래 내역이 표시돼요.
+                        </p>
+                    </div>
                 ) : (
                     entries.map((day) => (
                         <div key={day.date} className="flex flex-col gap-3">
