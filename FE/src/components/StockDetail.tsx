@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType, type SVGProps } from "react";
+import { useEffect, useRef, useState, useMemo, type ComponentType, type SVGProps } from "react";
 import Header from "@/components/layout/Header";
 import CaretLeftIcon from "@/assets/icons/caret-left.svg?react";
 import CaretDownIcon from "@/assets/icons/caret-down.svg?react";
@@ -35,6 +35,7 @@ interface StockDetailProps {
     initialInvestment: number;
     onBack: () => void;
     onSimulatedHoldingsUpdate?: (stockName: string, summary: TradingSummary | null) => void;
+    userCreatedAt?: string | null;
 }
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
@@ -582,6 +583,26 @@ function getReferenceDate(now = new Date()) {
     return referenceDate;
 }
 
+function safeParseDate(value?: string | null): Date | null {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+    return parsed;
+}
+
+function toDateOnlyString(date: Date | null): string | null {
+    if (!date) return null;
+    return date.toISOString().split("T")[0];
+}
+
+function subtractDays(date: Date, days: number) {
+    const copy = new Date(date);
+    copy.setDate(copy.getDate() - days);
+    return copy;
+}
+
 function getTop3ReferenceLabel(now = new Date()) {
     const referenceDate = getReferenceDate(now);
     const year = referenceDate.getFullYear();
@@ -910,6 +931,7 @@ export default function StockDetail({
     initialInvestment,
     onBack,
     onSimulatedHoldingsUpdate,
+    userCreatedAt,
 }: StockDetailProps) {
     const [activeTab, setActiveTab] = useState<TabType>("top3");
     const [selectedIndicator, setSelectedIndicator] = useState<IndicatorGuideInfo | null>(null);
@@ -923,6 +945,18 @@ export default function StockDetail({
     const [error, setError] = useState<string | null>(null);
     const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
     const [isBackendConnected, setIsBackendConnected] = useState(false);
+    const signupDate = useMemo(() => safeParseDate(userCreatedAt), [userCreatedAt]);
+    const referenceDate = useMemo(() => getReferenceDate(), []);
+    const defaultStartDate = useMemo(() => subtractDays(referenceDate, 30), [referenceDate]);
+    const tradingRangeStartDate = signupDate ?? defaultStartDate;
+    const tradingRangeStartStr = useMemo(
+        () => toDateOnlyString(tradingRangeStartDate) ?? toDateOnlyString(defaultStartDate) ?? "2025-01-01",
+        [tradingRangeStartDate, defaultStartDate],
+    );
+    const tradingRangeEndStr = useMemo(
+        () => toDateOnlyString(referenceDate) ?? "2025-01-01",
+        [referenceDate],
+    );
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -1026,8 +1060,7 @@ export default function StockDetail({
                 // 모델 타입 결정 (공격형 -> a2c, 안정형 -> marl)
                 const modelType = investmentStyle === "공격형" ? "a2c" : "marl";
 
-                // 12월 1일부터의 데이터만 요청 (요구사항에 따라 고정 날짜 사용)
-                const startDateStr = "2025-12-01";
+                const startDateStr = tradingRangeStartStr || "2025-01-01";
 
                 // AI 히스토리와 주가 데이터 동시 가져오기
                 const [aiHistory, stockHistory] = await Promise.all([
@@ -1067,7 +1100,7 @@ export default function StockDetail({
         };
 
         loadTradingHistory();
-    }, [stockName, investmentStyle, initialInvestment, onSimulatedHoldingsUpdate]);
+    }, [stockName, investmentStyle, initialInvestment, tradingRangeStartStr, onSimulatedHoldingsUpdate]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
