@@ -11,7 +11,7 @@ import {
     generateRandomActions,
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
-import { fetchAiTradingSummary, type TradingSummary } from "@/utils/aiTradingSummary";
+import { fetchAiTradingSummary, type TradingSummary, isStockSupported } from "@/utils/aiTradingSummary";
 import StockCard from "./StockCard";
 
 interface Stock {
@@ -409,6 +409,12 @@ export default function Home({
         const preloadSummaries = async () => {
             await Promise.all(
                 adjustedStocks.map(async (stock) => {
+                    if (!isStockSupported(stock.name)) {
+                        if (!cancelled) {
+                            handleSimulatedHoldingsUpdate(stock.name, null);
+                        }
+                        return;
+                    }
                     try {
                         const result = await fetchAiTradingSummary({
                             stockName: stock.name,
