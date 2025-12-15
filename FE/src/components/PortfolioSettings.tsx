@@ -67,7 +67,7 @@ function StyleOptionCard({
                 <div className="flex flex-col">
                     <span
                         className="title-3 tracking-[0.16px]"
-                        style={{ color: selected ? "var(--component-main)" : "var(--achromatic-600)" }}
+                        style={{ color: selected ? "var(--component-main)" : "var(--achromatic-500)" }}
                     >
                         {label}
                     </span>
@@ -164,7 +164,7 @@ export default function PortfolioSettings({
                                     inputMode="numeric"
                                     value={investmentAmount}
                                     onChange={(e) => handleInvestmentChange(e.target.value)}
-                                    placeholder="예: 1,000,000"
+                                    placeholder="초기투자금"
                                     className="w-full rounded-[8px] label-1 text-achromatic-800 tracking-[0.14px] outline-none placeholder-body-2 placeholder-achromatic-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                     style={{
                                         paddingInline: "12px",
@@ -198,7 +198,7 @@ export default function PortfolioSettings({
                             </div>
                             <span
                                 className="title-1"
-                                style={{ color: "var(--achromatic-500)" }}
+                                style={{ color: "var(--achromatic-800)" }}
                             >
                                 원
                             </span>
