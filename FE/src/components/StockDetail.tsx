@@ -12,7 +12,12 @@ import { type InvestmentStyle } from "../contexts/InvestmentStyleContext";
 import { api } from "../api/client";
 import { resolveStockSymbol } from "@/lib/stocks";
 import { DayTrading, type SimulatedTrade } from "@/utils/aiTradingSimulation";
-import { fetchAiTradingSummary, getReferenceDate, type TradingSummary } from "@/utils/aiTradingSummary";
+import {
+    fetchAiTradingSummary,
+    getReferenceDate,
+    isStockSupported,
+    type TradingSummary,
+} from "@/utils/aiTradingSummary";
 
 export type TabType = "top3" | "analysis" | "trading";
 
@@ -227,13 +232,18 @@ function RecommendationCard({
     aiExplanation,
     loading,
     error,
+    aiSupported,
 }: {
     stockName: string;
     recommendation: string;
     aiExplanation: string;
     loading: boolean;
     error: string | null;
+    aiSupported: boolean;
 }) {
+    const displayRecommendation = aiSupported ? recommendation : "-";
+    const displayExplanation = aiSupported ? aiExplanation : "지원되지 않습니다";
+
     return (
         <div className="w-full" style={{ paddingInline: "20px" }}>
             <section
@@ -243,10 +253,16 @@ function RecommendationCard({
                 <div className="flex flex-col gap-1">
                     <p className="label-2 text-[#6b6e74] tracking-[0.2px]">추천 행동</p>
                     <p className="text-[36px] tracking-[1.2px] text-[#1fa9a4]" style={{ fontWeight: 700 }}>
-                        {recommendation}
+                        {displayRecommendation}
                     </p>
                 </div>
-                <SparklineChart stockSymbol={stockName} />
+                {aiSupported ? (
+                    <SparklineChart stockSymbol={stockName} />
+                ) : (
+                    <div className="h-12 flex items-center justify-center rounded-[12px] bg-white text-[#9a9ea9]">
+                        지원되지 않습니다
+                    </div>
+                )}
                 <div className="h-[0.5px] w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
                 <div className="flex flex-col gap-[4px] text-[#151b26]">
                     <div className="flex items-center gap-[4px]">
@@ -257,8 +273,10 @@ function RecommendationCard({
                         <p className="body-2 text-[#6b6e74]">AI가 최신 데이터를 분석하고 있습니다...</p>
                     ) : error ? (
                         <p className="body-2 text-[#f3646f]">{error}</p>
+                    ) : !aiSupported ? (
+                        <p className="body-2 text-[#6b6e74]">지원되지 않습니다</p>
                     ) : (
-                        <p className="body-2 text-[#151b26]">{aiExplanation}</p>
+                        <p className="body-2 text-[#151b26]">{displayExplanation}</p>
                     )}
                 </div>
             </section>
@@ -439,11 +457,13 @@ function Top3AnalysisSection({
     onIndicatorClick,
     xaiFeatures,
     loading,
+    isSupported,
 }: {
     investmentStyle: InvestmentStyle;
     onIndicatorClick: (indicator: IndicatorGuideInfo) => void;
     xaiFeatures: XAIReference[];
     loading: boolean;
+    isSupported: boolean;
 }) {
     const rankColors = ["#FFD700", "#C0C0C0", "#CD7F32"];
     const referenceLabel = getTop3ReferenceLabel();
@@ -512,20 +532,22 @@ function Top3AnalysisSection({
             };
         })
         : getIndicatorsByStyle(investmentStyle).top3; // 폴백: 기존 정적 데이터
-    const handleGuideClick = () => {
-        onIndicatorClick({
-            title: "AI 선정 기준",
-            description: "TOP3 분석은 AI가 우선순위가 높은 지표를 선별해 구성합니다.",
-            fullDescription:
-                "AI는 최근 시장 변동성, 거래량, 추세 지표 등을 종합적으로 평가해 TOP3 분석 카드를 구성합니다. 각 지표는 현재 투자 전략에 미치는 영향도를 기준으로 선정되며, 변동성이 큰 경우 지표 구성이 달라질 수 있습니다.",
-            interpretationPoints: [
-                "시장 변동성, 추세, 수급 지표를 중심으로 선별됩니다.",
-                "상황에 따라 TOP3에 포함되는 지표가 달라질 수 있습니다.",
-                "각 지표 카드를 눌러 세부 해석을 확인해 주세요.",
-            ],
-        });
-    };
 
+    if (!isSupported) {
+        return (
+            <section className="flex w-full flex-col gap-[8px]" style={{ paddingInline: "20px" }}>
+                <div
+                    className="flex items-center justify-between body-3"
+                    style={{ color: "var(--achromatic-500)" }}
+                >
+                    <span className="body-3">{referenceLabel} (20:30 기준)</span>
+                </div>
+                <div className="rounded-[16px] bg-[#f2f4f8] p-6 text-center text-[#9a9ea9]">
+                    이 종목은 AI 예측 데이터를 지원하지 않습니다.
+                </div>
+            </section>
+        );
+    }
     return (
         <section className="flex w-full flex-col gap-[8px]" style={{ paddingInline: "20px" }}>
             <div
@@ -533,14 +555,6 @@ function Top3AnalysisSection({
                 style={{ color: "var(--achromatic-500)" }}
             >
                 <span className="body-3">{referenceLabel} (20:30 기준)</span>
-                <button
-                    type="button"
-                    className="flex items-center gap-[2px]"
-                    onClick={handleGuideClick}
-                >
-                    <span>AI 선정 기준</span>
-                    <InfoIcon className="h-[16px] w-[16px] text-[#b0b4bd]" aria-hidden />
-                </button>
             </div>
             <div className="flex flex-col" style={{ gap: "16px" }}>
                 {loading ? (
@@ -601,9 +615,11 @@ function TradeItem({ trade }: { trade: SimulatedTrade }) {
 function TradingHistorySection({
     onGuideClick,
     history,
+    isSupported,
 }: {
     onGuideClick: (info: IndicatorGuideInfo) => void;
     history: DayTrading[];
+    isSupported: boolean;
 }) {
     const referenceLabel = getTop3ReferenceLabel();
     const entries = history
@@ -613,6 +629,23 @@ function TradingHistorySection({
         }))
         .filter((day) => day.trades.length > 0)
         .sort((a, b) => b.date.localeCompare(a.date));
+    if (!isSupported) {
+        return (
+            <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
+                <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
+                    <span className="body-3">{referenceLabel} (20:30 기준)</span>
+                </div>
+                <div
+                    className="flex flex-col items-center text-center w-full text-[#9a9ea9]"
+                    style={{ marginTop: "80px" }}
+                >
+                    <InfoIcon className="h-[32px] w-[32px]" aria-hidden style={{ marginBottom: "8px" }} />
+                    <p className="title-3 mb-1 text-[#9a9ea9]">AI 가상 거래 데이터를 지원하지 않습니다.</p>
+                </div>
+            </section>
+        );
+    }
+
     return (
         <section className="flex w-full flex-col gap-4 pb-16" style={{ paddingInline: "20px" }}>
             <div className="flex items-center justify-between body-3" style={{ color: "var(--achromatic-500)" }}>
@@ -682,7 +715,8 @@ function StockDetailContent({
     loading,
     error,
     xaiFeatures,
-    isBackendConnected,
+    aiSupported,
+    tradingSupported,
 }: {
     stockName: string;
     onBack: () => void;
@@ -696,8 +730,21 @@ function StockDetailContent({
     loading: boolean;
     error: string | null;
     xaiFeatures: XAIReference[];
-    isBackendConnected: boolean;
+    aiSupported: boolean;
+    tradingSupported: boolean;
 }) {
+    const showWarning = !loading && (!aiSupported || !tradingSupported);
+    const warningMessage = (() => {
+        if (aiSupported && tradingSupported) return "";
+        if (!aiSupported && !tradingSupported) {
+            return "이 종목은 AI 예측 및 가상 거래 데이터를 지원하지 않습니다.";
+        }
+        if (!aiSupported) {
+            return "이 종목은 AI 예측 데이터를 지원하지 않습니다.";
+        }
+        return "이 종목은 AI 가상 거래 데이터를 지원하지 않습니다.";
+    })();
+
     return (
         <div
             className="absolute content-stretch flex flex-col items-start left-1/2 top-[52px] translate-x-[-50%] w-full max-w-[375px] gap-4"
@@ -713,19 +760,13 @@ function StockDetailContent({
                     aiExplanation={aiExplanation}
                     loading={loading}
                     error={error}
+                    aiSupported={aiSupported}
                 />
-                {!loading && !isBackendConnected && (
+                {showWarning && (
                     <div className="w-full" style={{ paddingInline: "20px" }}>
                         <div className="rounded-[12px] bg-[#fff3cd] border border-[#ffeaa7] p-3">
                             <p className="body-3 text-[#856404] mb-2">
-                                ⚠️ 백엔드 서버에 연결할 수 없어 Mock 데이터를 표시하고 있습니다.
-                            </p>
-                            <p className="body-3 text-[#856404] text-xs">
-                                실제 데이터를 보려면 백엔드 서버를 실행해주세요:<br/>
-                                <code className="bg-[#f8f9fa] px-1 rounded">cd BE && uvicorn app.main:app --reload --port 8000</code>
-                            </p>
-                            <p className="body-3 text-[#856404] text-xs mt-1">
-                                OpenAI API 키도 BE/.env 파일에 설정해주세요.
+                                ⚠️ {warningMessage}
                             </p>
                         </div>
                     </div>
@@ -739,6 +780,7 @@ function StockDetailContent({
                         onIndicatorClick={onIndicatorClick}
                         xaiFeatures={xaiFeatures}
                         loading={loading}
+                        isSupported={aiSupported}
                     />
                 )}
                 {activeTab === "analysis" && <IndicatorSection investmentStyle={investmentStyle} />}
@@ -746,6 +788,7 @@ function StockDetailContent({
                     <TradingHistorySection
                         onGuideClick={onIndicatorClick}
                         history={tradingHistory}
+                        isSupported={tradingSupported}
                     />
                 )}
             </div>
@@ -773,7 +816,9 @@ export default function StockDetail({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [tradingHistory, setTradingHistory] = useState<DayTrading[]>([]);
-    const [isBackendConnected, setIsBackendConnected] = useState(false);
+    const [aiDataSupported, setAiDataSupported] = useState(true);
+    const [tradingDataSupported, setTradingDataSupported] = useState(true);
+    const stockSupported = useMemo(() => isStockSupported(stockName), [stockName]);
 
     const translateSignal = (signal: string): string => {
         const signalMap: Record<string, string> = {
@@ -784,25 +829,19 @@ export default function StockDetail({
         return signalMap[signal?.toLowerCase()] || "분석 중";
     };
 
-    const getMockPredictionResult = (model: string) => {
-        const mockResults: Record<string, { signal: string; gpt_explanation: string }> = {
-            model2: {
-                signal: "buy",
-                gpt_explanation:
-                    "전반적으로 하락세를 유지하고 있으며, 주가는 추가 하락 가능성이 높습니다. 시장 상황에 대한 신중한 접근과 경계를 유지하여 변동성에 대비하는 것이 중요합니다.",
-            },
-            model3: {
-                signal: "hold",
-                gpt_explanation:
-                    "안정적인 수익을 목표로 하는 전략으로, 현재 보유가 최적입니다. 리스크를 최소화하며 장기적 관점에서 접근하세요.",
-            },
-        };
-
-        return mockResults[model] || mockResults.model3;
-    };
-
     useEffect(() => {
         const loadAIAnalysis = async () => {
+            if (!stockSupported) {
+                setAiDataSupported(false);
+                setAiData({
+                    recommendation: "-",
+                    aiExplanation: "지원되지 않습니다",
+                    indicators: {},
+                    xaiFeatures: [],
+                });
+                setLoading(false);
+                return;
+            }
             try {
                 setLoading(true);
                 setError(null);
@@ -817,16 +856,32 @@ export default function StockDetail({
                 };
                 const investmentStyleEn = styleMap[investmentStyle] || "aggressive";
 
-                let result;
+                let result: any = null;
                 try {
                     // 백엔드 API 호출
                     result = await api.predictByInvestmentStyle(symbol, investmentStyleEn);
-                    setIsBackendConnected(true);
+                    setAiDataSupported(true);
                 } catch (apiError) {
                     console.warn("백엔드 API 호출 실패, Mock 데이터 사용:", apiError);
-                    setIsBackendConnected(false);
-                    // Mock 데이터 폴백
-                    result = getMockPredictionResult(investmentStyleEn === "aggressive" ? "model2" : "model3");
+                    setAiDataSupported(false);
+                    setAiData({
+                        recommendation: "-",
+                        aiExplanation: "지원되지 않습니다",
+                        indicators: {},
+                        xaiFeatures: [],
+                    });
+                    return;
+                }
+
+                if (!result) {
+                    setAiDataSupported(false);
+                    setAiData({
+                        recommendation: "-",
+                        aiExplanation: "지원되지 않습니다",
+                        indicators: {},
+                        xaiFeatures: [],
+                    });
+                    return;
                 }
 
                 const actionKey = typeof result.action === "string" ? result.action.toLowerCase() : "";
@@ -836,41 +891,52 @@ export default function StockDetail({
                     result.explanation ||
                     result.gpt_explanation ||
                     "현재 시장 상황을 종합적으로 분석한 결과입니다.";
-                const nextData: PredictionData = {
-                    recommendation: recommendationText,
-                    aiExplanation: explanationText,
-                    indicators: result.technical_indicators || {},
-                    xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
-                };
-                
-                // xaiFeatures 저장 후 확인
-                setAiData(nextData);
+                if (result?.technical_indicators || result?.xai_features) {
+                    const nextData: PredictionData = {
+                        recommendation: recommendationText,
+                        aiExplanation: explanationText,
+                        indicators: result.technical_indicators || {},
+                        xaiFeatures: Array.isArray(result.xai_features) ? result.xai_features : [],
+                    };
+                    setAiData(nextData);
+                } else {
+                    setAiData({
+                        recommendation: "-",
+                        aiExplanation: "지원되지 않습니다",
+                        indicators: {},
+                        xaiFeatures: [],
+                    });
+                    setAiDataSupported(false);
+                }
             } catch (err) {
                 console.error("AI 분석 데이터 로딩 실패:", err);
                 setError("분석 데이터를 불러오는데 실패했습니다.");
-                // 최종 폴백
-                const fallback = getMockPredictionResult("model3");
-                const fallbackData: PredictionData = {
-                    recommendation: translateSignal(fallback.signal),
-                    aiExplanation: fallback.gpt_explanation || "현재 시장 상황을 종합적으로 분석한 결과입니다.",
+                setAiData({
+                    recommendation: "-",
+                    aiExplanation: "지원되지 않습니다",
                     indicators: {},
                     xaiFeatures: [],
-                };
-                setAiData(fallbackData);
-                setIsBackendConnected(false);
+                });
+                setAiDataSupported(false);
             } finally {
                 setLoading(false);
             }
         };
 
         loadAIAnalysis();
-    }, [stockName, investmentStyle]);
+    }, [stockName, investmentStyle, stockSupported]);
 
     // 거래 내역 로드
     useEffect(() => {
         let cancelled = false;
 
         const loadTradingSummary = async () => {
+            if (!stockSupported) {
+                setTradingDataSupported(false);
+                setTradingHistory([]);
+                onSimulatedHoldingsUpdate?.(stockName, null);
+                return;
+            }
             try {
                 const result = await fetchAiTradingSummary({
                     stockName,
@@ -880,13 +946,13 @@ export default function StockDetail({
                     userId,
                 });
                 if (cancelled) return;
-                setIsBackendConnected(result.backendConnected);
+                setTradingDataSupported(result.backendConnected);
                 setTradingHistory(result.history);
                 onSimulatedHoldingsUpdate?.(stockName, result.summary);
             } catch (error) {
                 console.error("AI 거래 요약 로딩 실패:", error);
                 if (!cancelled) {
-                    setIsBackendConnected(false);
+                    setTradingDataSupported(false);
                     setTradingHistory([]);
                     onSimulatedHoldingsUpdate?.(stockName, null);
                 }
@@ -897,7 +963,7 @@ export default function StockDetail({
         return () => {
             cancelled = true;
         };
-    }, [stockName, investmentStyle, initialInvestment, userCreatedAt, userId, onSimulatedHoldingsUpdate]);
+    }, [stockName, investmentStyle, initialInvestment, userCreatedAt, userId, stockSupported, onSimulatedHoldingsUpdate]);
 
     return (
         <div className="relative min-h-screen w-full bg-white overflow-y-scroll" style={{ scrollbarGutter: "stable" }} data-name="종목 상세">
@@ -914,7 +980,8 @@ export default function StockDetail({
                 loading={loading}
                 error={error}
                 xaiFeatures={aiData.xaiFeatures}
-                isBackendConnected={isBackendConnected}
+                aiSupported={aiDataSupported}
+                tradingSupported={tradingDataSupported}
             />
 
             <IndicatorModal indicator={selectedIndicator} onClose={() => setSelectedIndicator(null)} />
