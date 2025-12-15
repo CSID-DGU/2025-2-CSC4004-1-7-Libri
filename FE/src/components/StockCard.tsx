@@ -1,6 +1,7 @@
 import LogoIcon from "@/assets/icons/Logo.svg?react";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
+import { isStockSupported } from "@/utils/aiTradingSummary";
 
 interface StockCardProps {
     name: string;
@@ -52,6 +53,9 @@ export default function StockCard({
     onClick,
 }: StockCardProps) {
     const evaluationValue = Math.round((quantity ?? 0) * (averagePrice ?? 0));
+    const supported = isStockSupported(name);
+    const displayProfitText = supported ? profitText : "지원되지 않습니다";
+    const displayProfitColor = supported ? profitColor : "var(--achromatic-400)";
 
     return (
         <button
@@ -71,8 +75,8 @@ export default function StockCard({
                     <p className="title-3 text-[#444951]" style={{ fontWeight: 700 }}>
                         {formatNumber(evaluationValue)}원
                     </p>
-                    <p className="body-3" style={{ color: profitColor, fontWeight: 500 }}>
-                        {profitText}
+                    <p className="body-3" style={{ color: displayProfitColor, fontWeight: 500 }}>
+                        {displayProfitText}
                     </p>
                 </div>
             </div>
