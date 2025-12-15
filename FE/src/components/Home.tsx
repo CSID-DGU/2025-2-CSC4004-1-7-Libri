@@ -411,10 +411,14 @@ export default function Home({
                 });
 
                 setPortfolioStocks(mappedStocks);
-                if (typeof portfolio.total_asset === "number") {
+                if (typeof portfolio.initial_capital === "number") {
+                    setPortfolioInitialInvestment(portfolio.initial_capital);
+                } else if (typeof portfolio.total_asset === "number") {
                     setPortfolioInitialInvestment(portfolio.total_asset);
                 } else if (typeof portfolio.current_capital === "number") {
                     setPortfolioInitialInvestment(portfolio.current_capital);
+                } else {
+                    setPortfolioInitialInvestment(null);
                 }
             } catch (error) {
                 console.error("포트폴리오 정보를 불러오지 못했습니다:", error);
@@ -453,7 +457,13 @@ export default function Home({
         const firstName = adjusted[0]?.name || "삼성전자";
         return [adjusted, firstName] as const;
     }, [effectiveStocks, simulatedHoldings]);
-    const effectiveInitialInvestment = Number(initialInvestment) || 0;
+    const effectiveInitialInvestment = (() => {
+        if (typeof portfolioInitialInvestment === "number" && !Number.isNaN(portfolioInitialInvestment)) {
+            return portfolioInitialInvestment;
+        }
+        const parsed = Number(initialInvestment);
+        return Number.isNaN(parsed) ? 0 : parsed;
+    })();
     
     // Mock 데이터 생성 함수 (백엔드 연결 실패 시 사용)
     const generateMockPerformance = useMemo(() => {
