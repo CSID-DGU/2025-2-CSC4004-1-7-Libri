@@ -3,7 +3,7 @@ import LogoIcon from "@/assets/icons/Logo.svg?react";
 import samsungLogo from "@/assets/logos/samsunglogo.png";
 import skLogo from "@/assets/logos/sklogo.png";
 
-interface Stock {
+export interface ManagedStock {
     name: string;
     quantity: number;
     averagePrice: number;
@@ -12,7 +12,7 @@ interface Stock {
 }
 
 interface StockManagementProps {
-    stocks: Stock[];
+    stocks: ManagedStock[];
     onBack?: () => void;
     onSelectStock?: (stockName: string) => void;
 }
@@ -78,7 +78,7 @@ function StockCard({
     stock,
     onSelectStock,
 }: {
-    stock: Stock;
+    stock: ManagedStock;
     onSelectStock?: (stockName: string) => void;
 }) {
     const investedAmount = (stock.quantity ?? 0) * (stock.averagePrice ?? 0);
