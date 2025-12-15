@@ -1,7 +1,5 @@
 import Header from "@/components/layout/Header";
-import LogoIcon from "@/assets/icons/Logo.svg?react";
-import samsungLogo from "@/assets/logos/samsunglogo.png";
-import skLogo from "@/assets/logos/sklogo.png";
+import StockCard from "@/components/StockCard";
 
 export interface ManagedStock {
     name: string;
@@ -17,8 +15,6 @@ interface StockManagementProps {
     onSelectStock?: (stockName: string) => void;
 }
 
-const formatNumber = (value: number) => value.toLocaleString();
-
 const formatProfitText = (profit: number, profitRate: number) => {
     if (profit === 0 && profitRate === 0) {
         return {
@@ -33,92 +29,6 @@ const formatProfitText = (profit: number, profitRate: number) => {
         color: positive ? "#f3646f" : "#2563eb",
     };
 };
-
-function StockLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
-    if (logoUrl) {
-        return (
-            <div
-                className="overflow-hidden"
-                style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-            >
-                <img src={logoUrl} alt={`${name} 로고`} className="size-full object-cover" loading="lazy" />
-            </div>
-        );
-    }
-
-    const predefinedLogos: Record<string, string> = {
-        삼성전자: samsungLogo,
-        "SK하이닉스": skLogo,
-    };
-
-    const matchedLogo = predefinedLogos[name];
-
-    if (matchedLogo) {
-        return (
-            <div
-                className="overflow-hidden bg-white"
-                style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-            >
-                <img src={matchedLogo} alt={`${name} 로고`} className="size-full object-cover" loading="lazy" />
-            </div>
-        );
-    }
-
-    return (
-        <div
-            className="flex items-center justify-center bg-white text-achromatic-600"
-            style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-        >
-            <LogoIcon className="size-6" />
-        </div>
-    );
-}
-
-function StockCard({
-    stock,
-    onSelectStock,
-}: {
-    stock: ManagedStock;
-    onSelectStock?: (stockName: string) => void;
-}) {
-    const investedAmount = (stock.quantity ?? 0) * (stock.averagePrice ?? 0);
-    const profit = (stock.totalValue ?? 0) - investedAmount;
-    const profitRate = investedAmount > 0 ? (profit / investedAmount) * 100 : 0;
-    const { text, color } = formatProfitText(profit, profitRate);
-
-    return (
-        <button
-            type="button"
-            onClick={() => onSelectStock?.(stock.name)}
-            className="w-full rounded-[16px] bg-[#f2f4f8] text-left transition-transform hover:scale-[0.995]"
-        >
-            <div className="flex items-start justify-between" style={{ padding: "16px 20px" }}>
-                <div className="flex items-center gap-[12px]">
-                    <StockLogo name={stock.name} logoUrl={stock.logoUrl} />
-                    <div className="flex flex-col">
-                        <span className="title-3 text-[#151b26]">
-                            {stock.name}
-                        </span>
-                        <span className="body-3 text-[#a1a4a8]">
-                            {stock.quantity}주
-                        </span>
-                    </div>
-                </div>
-                <div className="flex flex-col items-end text-right">
-                    <p className="title-3 text-[#444951]" style={{ fontWeight: 700 }}>
-                        {formatNumber(stock.totalValue ?? 0)}원
-                    </p>
-                    <p
-                        className="body-3"
-                        style={{ color, fontWeight: 500 }}
-                    >
-                        {text}
-                    </p>
-                </div>
-            </div>
-        </button>
-    );
-}
 
 export default function StockManagement({ stocks, onBack, onSelectStock }: StockManagementProps) {
     return (
@@ -139,13 +49,25 @@ export default function StockManagement({ stocks, onBack, onSelectStock }: Stock
                         </p>
                         <div className="flex flex-col" style={{ gap: "12px" }}>
                             {stocks.length > 0 ? (
-                                stocks.map((stock) => (
-                                    <StockCard
-                                        key={stock.name}
-                                        stock={stock}
-                                        onSelectStock={onSelectStock}
-                                    />
-                                ))
+                                stocks.map((stock) => {
+                                    const evaluationValue = Math.round((stock.quantity ?? 0) * (stock.averagePrice ?? 0));
+                                    const profit = (stock.totalValue ?? 0) - evaluationValue;
+                                    const profitRate =
+                                        evaluationValue > 0 ? (profit / evaluationValue) * 100 : 0;
+                                    const profitInfo = formatProfitText(profit, profitRate);
+                                    return (
+                                        <StockCard
+                                            key={stock.name}
+                                            name={stock.name}
+                                            quantity={stock.quantity}
+                                            averagePrice={stock.averagePrice}
+                                            logoUrl={stock.logoUrl}
+                                            profitText={profitInfo.text}
+                                            profitColor={profitInfo.color}
+                                            onClick={() => onSelectStock?.(stock.name)}
+                                        />
+                                    );
+                                })
                             ) : (
                                 <div className="w-full rounded-2xl bg-[#f2f4f8] py-8 text-center text-[#a1a4a8]">
                                     아직 추가된 종목이 없습니다.

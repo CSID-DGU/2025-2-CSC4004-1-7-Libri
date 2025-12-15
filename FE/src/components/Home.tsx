@@ -3,8 +3,6 @@ import SettingsIcon from "@/assets/icons/settings.svg?react";
 import AiSparkIcon from "@/assets/icons/AI.svg?react";
 import PlusIcon from "@/assets/icons/plus.svg?react";
 import LogoIcon from "@/assets/icons/Logo.svg?react";
-import samsungLogo from "@/assets/logos/samsunglogo.png";
-import skLogo from "@/assets/logos/sklogo.png";
 import StockDetail, { type TradingSummary } from "./StockDetail";
 import { api } from "@/api/client";
 import { mapSymbolToDisplayName, resolveStockSymbol } from "@/lib/stocks";
@@ -13,6 +11,7 @@ import {
     generateRandomActions,
     simulateTradingHistory,
 } from "@/utils/aiTradingSimulation";
+import StockCard from "./StockCard";
 
 interface Stock {
     name: string;
@@ -154,98 +153,6 @@ function InvestmentState({
     );
 }
 
-function StockLogo({ name, logoUrl }: { name: string; logoUrl?: string }) {
-    if (logoUrl) {
-        return (
-            <div
-                className="overflow-hidden"
-                style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-            >
-                <img src={logoUrl} alt={`${name} 로고`} className="size-full object-cover" loading="lazy" />
-            </div>
-        );
-    }
-
-    const predefinedLogos: Record<string, string> = {
-        삼성전자: samsungLogo,
-        "SK하이닉스": skLogo,
-    };
-
-    const matchedLogo = predefinedLogos[name];
-
-    if (matchedLogo) {
-        return (
-            <div
-                className="overflow-hidden bg-white"
-                style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-            >
-                <img src={matchedLogo} alt={`${name} 로고`} className="size-full object-cover" loading="lazy" />
-            </div>
-        );
-    }
-
-    return (
-        <div
-            className="flex items-center justify-center bg-white text-achromatic-600"
-            style={{ width: "46px", height: "46px", borderRadius: "100px" }}
-        >
-            <LogoIcon className="size-6" />
-        </div>
-    );
-}
-
-function StockCard({
-    stock,
-    onClick,
-    aiProfit,
-    aiProfitRate,
-    latestPrice,
-}: {
-    stock: Stock;
-    onClick: (stockName: string) => void;
-    aiProfit: number;
-    aiProfitRate: number;
-    latestPrice?: number;
-}) {
-    const { text, color } = formatProfitText(aiProfit, aiProfitRate);
-    const displayValue = latestPrice !== undefined
-        ? Math.round((stock.quantity ?? 0) * latestPrice)
-        : stock.totalValue;
-
-    return (
-        <button
-            type="button"
-            onClick={() => onClick(stock.name)}
-            className="w-full rounded-[16px] bg-[#f2f4f8] text-left transition-transform hover:scale-[0.995]"
-        >
-            <div className="flex items-start justify-between" style={{ padding: "16px 20px" }}>
-                <div className="flex items-center gap-[12px]">
-                    <StockLogo name={stock.name} logoUrl={stock.logoUrl} />
-                    <div className="flex flex-col">
-                        <span className="title-3 text-[#151b26]">
-                            {stock.name}
-                        </span>
-                        <span className="body-3 text-[#a1a4a8]">
-                            {stock.quantity}주
-                        </span>
-                    </div>
-                </div>
-                <div className="flex flex-col items-end text-right">
-                    <p className="title-3 text-[#444951]" style={{ fontWeight: 700 }}>
-                        {formatNumber(displayValue)}원
-                    </p>
-                    <p
-                        className="body-3 "
-                        style={{ color, fontWeight: 500 }}
-                    >
-                        {text}
-                    </p>
-                </div>
-            </div>
-        </button>
-    );
-}
-
 function StockList({
     stocks,
     onStockClick,
@@ -265,16 +172,24 @@ function StockList({
 
     return (
         <div className="flex w-full flex-col gap-[12px]">
-            {stocks.map((stock) => (
-                            <StockCard
-                                key={stock.name}
-                                stock={stock}
-                                onClick={onStockClick}
-                                aiProfit={stockPerformance[stock.name]?.profit ?? 0}
-                                aiProfitRate={stockPerformance[stock.name]?.profitRate ?? 0}
-                                latestPrice={stockPerformance[stock.name]?.latestPrice}
-                            />
-                        ))}
+            {stocks.map((stock) => {
+                const profitInfo = formatProfitText(
+                    stockPerformance[stock.name]?.profit ?? 0,
+                    stockPerformance[stock.name]?.profitRate ?? 0,
+                );
+                return (
+                    <StockCard
+                        key={stock.name}
+                        name={stock.name}
+                        quantity={stock.quantity}
+                        averagePrice={stock.averagePrice}
+                        logoUrl={stock.logoUrl}
+                        profitText={profitInfo.text}
+                        profitColor={profitInfo.color}
+                        onClick={() => onStockClick(stock.name)}
+                    />
+                );
+            })}
         </div>
     );
 }
