@@ -3,12 +3,14 @@ import Header from "@/components/layout/Header";
 import LightningIcon from "@/assets/icons/lightning.svg?react";
 import ShieldIcon from "@/assets/icons/shield.svg?react";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
+import { api } from "@/api/client";
 
 interface PortfolioSettingsProps {
     onBack?: () => void;
-    onSave?: (data: { investmentAmount: number; investmentStyle: string }) => void;
+    onSave?: (data: { investmentAmount: number; investmentStyle: string }) => void | Promise<void>;
     initialInvestmentAmount?: number;
     initialInvestmentStyle?: string;
+    userId?: number | null;
 }
 
 interface StyleOption {
@@ -22,13 +24,13 @@ const STYLE_OPTIONS: StyleOption[] = [
     {
         id: "공격형",
         label: "공격형",
-        description: "높은 수익을 노리지만, 그만큼 변동성을 감수해요",
+        description: "높은 리스크, 높은 수익 추구형",
         Icon: LightningIcon,
     },
     {
         id: "안정형",
         label: "안정형",
-        description: "안정적인 수익을 위해 리스크를 최소화해요",
+        description: "낮은 리스크, 낮은 수익 추구형",
         Icon: ShieldIcon,
     },
 ];
@@ -86,11 +88,14 @@ export default function PortfolioSettings({
     onSave,
     initialInvestmentAmount,
     initialInvestmentStyle,
+    userId,
 }: PortfolioSettingsProps) {
     const [investmentAmount, setInvestmentAmount] = useState<string>(
         typeof initialInvestmentAmount === "number" ? String(initialInvestmentAmount) : "",
     );
     const [selectedStyle, setSelectedStyle] = useState<string>(initialInvestmentStyle || "");
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (typeof initialInvestmentAmount === "number") {
@@ -114,12 +119,27 @@ export default function PortfolioSettings({
         setInvestmentAmount(trimmed);
     };
 
-    const handleSubmit = () => {
-        if (!parsedInvestmentAmount || !selectedStyle) return;
-        onSave?.({ investmentAmount: parsedInvestmentAmount, investmentStyle: selectedStyle });
+    const handleSubmit = async () => {
+        if (!parsedInvestmentAmount || !selectedStyle || !userId || submitting) return;
+        setSubmitting(true);
+        setError(null);
+        try {
+            await api.updatePortfolio(userId, {
+                initial_investment: parsedInvestmentAmount,
+                investment_style: selectedStyle,
+            });
+            if (onSave) {
+                await onSave({ investmentAmount: parsedInvestmentAmount, investmentStyle: selectedStyle });
+            }
+        } catch (apiError) {
+            console.error("포트폴리오 업데이트 실패:", apiError);
+            setError("저장에 실패했습니다. 다시 시도해 주세요.");
+        } finally {
+            setSubmitting(false);
+        }
     };
 
-    const saveDisabled = !parsedInvestmentAmount || !selectedStyle;
+    const saveDisabled = !parsedInvestmentAmount || !selectedStyle || !userId || submitting;
 
     return (
         <div className="bg-white relative size-full min-h-screen" data-name="포트폴리오 관리">
@@ -202,6 +222,11 @@ export default function PortfolioSettings({
                                 />
                             ))}
                         </div>
+                        {error && (
+                            <p className="body-3" style={{ color: "var(--component-red)" }}>
+                                {error}
+                            </p>
+                        )}
                     </section>
                 </div>
             </div>
