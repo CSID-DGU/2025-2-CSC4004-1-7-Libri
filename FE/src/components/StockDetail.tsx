@@ -39,8 +39,6 @@ interface StockDetailProps {
 
 // Mock 데이터 캐시 (종목별로 동일한 데이터 유지)
 const mockDataCache: Record<string, Array<{ time: number; value: number }>> = {};
-const AI_PREDICTION_CACHE_KEY = "libri_ai_prediction_cache";
-const AI_TRADING_HISTORY_CACHE_KEY = "libri_ai_trading_history_cache";
 
 type XAIReference = {
     base?: string;
@@ -62,69 +60,12 @@ interface PredictionData {
     xaiFeatures: XAIReference[];
 }
 
-interface CachedPredictionEntry {
-    data: PredictionData;
-    storedAt: string;
-}
-
 export interface TradingSummary {
     netShares: number;
     averagePrice: number;
     lastTradePrice: number | null;
     realizedProfit: number;
     positionValue: number;
-}
-
-interface TradingHistoryCacheValue {
-    history: DayTrading[];
-    summary: TradingSummary;
-}
-
-interface CachedTradingHistoryEntry {
-    data: TradingHistoryCacheValue | DayTrading[];
-    storedAt: string;
-}
-
-function loadPredictionCache(): Record<string, CachedPredictionEntry> {
-    try {
-        const raw = localStorage.getItem(AI_PREDICTION_CACHE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function savePredictionCacheEntry(key: string, data: PredictionData) {
-    try {
-        const cache = loadPredictionCache();
-        cache[key] = { data, storedAt: new Date().toISOString() };
-        localStorage.setItem(AI_PREDICTION_CACHE_KEY, JSON.stringify(cache));
-    } catch {
-        // localStorage access might fail; ignore to avoid crashing UI
-    }
-}
-
-function loadTradingHistoryCache(): Record<string, CachedTradingHistoryEntry> {
-    try {
-        const raw = localStorage.getItem(AI_TRADING_HISTORY_CACHE_KEY);
-        if (!raw) return {};
-        const parsed = JSON.parse(raw);
-        return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-        return {};
-    }
-}
-
-function saveTradingHistoryCacheEntry(key: string, data: TradingHistoryCacheValue) {
-    try {
-        const cache = loadTradingHistoryCache();
-        cache[key] = { data, storedAt: new Date().toISOString() };
-        localStorage.setItem(AI_TRADING_HISTORY_CACHE_KEY, JSON.stringify(cache));
-    } catch {
-        // Ignore storage errors to keep UI responsive
-    }
 }
 
 function isErrorPrediction(data: PredictionData | undefined): boolean {
@@ -641,10 +582,6 @@ function getReferenceDate(now = new Date()) {
     return referenceDate;
 }
 
-function getReferenceDateISO(now = new Date()) {
-    return getReferenceDate(now).toISOString().split("T")[0];
-}
-
 function getTop3ReferenceLabel(now = new Date()) {
     const referenceDate = getReferenceDate(now);
     const year = referenceDate.getFullYear();
@@ -1091,22 +1028,6 @@ export default function StockDetail({
 
                 // 12월 1일부터의 데이터만 요청 (요구사항에 따라 고정 날짜 사용)
                 const startDateStr = "2025-12-01";
-                const referenceDateISO = getReferenceDateISO();
-                const cacheKey = `${referenceDateISO}_${symbol}_${modelType}_${initialInvestment}`;
-
-                const tradingCache = loadTradingHistoryCache();
-                const cachedEntry = tradingCache?.[cacheKey];
-                if (cachedEntry?.data) {
-                    const cachedHistory = Array.isArray(cachedEntry.data)
-                        ? cachedEntry.data
-                        : cachedEntry.data.history;
-                    const cachedSummary = Array.isArray(cachedEntry.data)
-                        ? summarizeTradingHistoryEntries(cachedEntry.data)
-                        : cachedEntry.data.summary;
-                    setTradingHistory(cachedHistory);
-                    onSimulatedHoldingsUpdate?.(stockName, cachedSummary);
-                    return;
-                }
 
                 // AI 히스토리와 주가 데이터 동시 가져오기
                 const [aiHistory, stockHistory] = await Promise.all([
@@ -1119,7 +1040,6 @@ export default function StockDetail({
                 const summary = summarizeTradingHistoryEntries(history);
                 setTradingHistory(history);
                 onSimulatedHoldingsUpdate?.(stockName, summary);
-                saveTradingHistoryCacheEntry(cacheKey, { history, summary });
             } catch (error) {
                 console.error("거래 내역 로딩 실패, Mock 데이터 사용:", error);
                 // 폴백: Mock 데이터 사용
