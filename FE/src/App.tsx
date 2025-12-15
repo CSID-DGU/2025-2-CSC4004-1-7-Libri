@@ -276,12 +276,11 @@ export default function App() {
                     });
                 }
 
-                const initialValue =
-                    typeof portfolio.total_asset === "number"
-                        ? portfolio.total_asset
-                        : portfolio.current_capital;
+                const initialValue = typeof portfolio.initial_capital === "number"
+                    ? portfolio.initial_capital
+                    : null;
 
-                if (typeof initialValue === "number" && !Number.isNaN(initialValue)) {
+                if (initialValue !== null) {
                     dispatch({
                         type: "SET_INITIAL_INVESTMENT",
                         value: Math.round(initialValue).toString(),
