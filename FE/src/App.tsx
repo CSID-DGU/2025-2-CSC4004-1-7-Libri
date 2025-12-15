@@ -9,6 +9,7 @@ import InitialInvestmentInput from "./components/InitialInvestmentInput";
 import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
 import Settings from "./components/Settings";
+import PortfolioSettings from "./components/PortfolioSettings";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
 import {
@@ -27,6 +28,7 @@ type Page =
     | "style"
     | "home"
     | "settings"
+    | "settings-portfolio"
     | "add-stock"
     | "add-quantity"
     | "add-price";
@@ -476,6 +478,23 @@ export default function App() {
             dispatch({ type: "LOGOUT" });
             return;
         }
+        if (menu === "portfolio") {
+            goToPage("settings-portfolio");
+        }
+    };
+
+    const handlePortfolioSettingsSave = ({
+        investmentAmount,
+        investmentStyle,
+    }: {
+        investmentAmount: number;
+        investmentStyle: string;
+    }) => {
+        dispatch({ type: "SET_INITIAL_INVESTMENT", value: String(investmentAmount) });
+        if (investmentStyle === "공격형" || investmentStyle === "안정형") {
+            dispatch({ type: "SET_INVESTMENT_STYLE", style: investmentStyle as InvestmentStyle });
+        }
+        goToPage("settings");
     };
 
     // 종목 추가 플로우 핸들러
@@ -582,6 +601,16 @@ export default function App() {
                 )}
                 {state.currentPage === "settings" && (
                     <Settings onBack={() => goBack("home")} onSelectMenu={handleSettingsMenu} />
+                )}
+                {state.currentPage === "settings-portfolio" && (
+                    <PortfolioSettings
+                        onBack={() => goBack("settings")}
+                        onSave={handlePortfolioSettingsSave}
+                        initialInvestmentAmount={
+                            state.initialInvestment ? Number(state.initialInvestment) : undefined
+                        }
+                        initialInvestmentStyle={state.investmentStyle || undefined}
+                    />
                 )}
                 {state.currentPage === "add-stock" && (
                     <Onboarding
