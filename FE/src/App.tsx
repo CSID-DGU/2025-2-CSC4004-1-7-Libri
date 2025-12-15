@@ -11,6 +11,7 @@ import Home from "./components/Home";
 import Settings from "./components/Settings";
 import PortfolioSettings from "./components/PortfolioSettings";
 import StockManagement from "./components/StockManagement";
+import StockManagementDetail from "./components/StockManagementDetail";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
 import {
@@ -31,6 +32,7 @@ type Page =
     | "settings"
     | "settings-portfolio"
     | "settings-stocks"
+    | "settings-stock-detail"
     | "add-stock"
     | "add-quantity"
     | "add-price";
@@ -60,6 +62,7 @@ interface State {
     userEmail: string | null;
     onboardingCompleted: boolean;
     userCreatedAt: string | null;
+    selectedStockName: string | null;
 }
 
 type Action =
@@ -76,7 +79,14 @@ type Action =
     | { type: "SET_USER_CREATED_AT"; createdAt: string | null }
     | { type: "SET_ONBOARDING_STATUS"; completed: boolean }
     | { type: "LOGOUT" }
-    | { type: "HYDRATE_FROM_STORAGE"; payload: Partial<Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">> };
+    | { type: "SET_SELECTED_STOCK"; stockName: string | null }
+    | { type: "UPDATE_STOCK"; stockName: string; quantity: number; averagePrice: number }
+    | {
+          type: "HYDRATE_FROM_STORAGE";
+          payload: Partial<
+              Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">
+          >;
+      };
 
 const initialState: State = {
     currentPage: "start",
@@ -89,6 +99,7 @@ const initialState: State = {
     userEmail: null,
     onboardingCompleted: false,
     userCreatedAt: null,
+    selectedStockName: null,
 };
 
 function createStock(form: FormData, logoUrl?: string): Stock {
@@ -207,6 +218,22 @@ function reducer(state: State, action: Action): State {
             return { ...state, userCreatedAt: action.createdAt };
         case "SET_ONBOARDING_STATUS":
             return { ...state, onboardingCompleted: action.completed };
+        case "SET_SELECTED_STOCK":
+            return { ...state, selectedStockName: action.stockName };
+        case "UPDATE_STOCK":
+            return {
+                ...state,
+                stocks: state.stocks.map((stock) =>
+                    stock.name === action.stockName
+                        ? {
+                              ...stock,
+                              quantity: action.quantity,
+                              averagePrice: action.averagePrice,
+                              totalValue: action.quantity * action.averagePrice,
+                          }
+                        : stock,
+                ),
+            };
         case "LOGOUT":
             return {
                 ...initialState,
@@ -539,6 +566,59 @@ export default function App() {
 
     const goBack = (page: Page) => goToPage(page);
 
+    const handleOpenStockManagementDetail = (stockName: string) => {
+        dispatch({ type: "SET_SELECTED_STOCK", stockName });
+        goToPage("settings-stock-detail");
+    };
+
+    const handleCloseStockManagementDetail = (page: Page = "settings-stocks") => {
+        dispatch({ type: "SET_SELECTED_STOCK", stockName: null });
+        goBack(page);
+    };
+
+    const handleStockDetailSave = async ({
+        quantity,
+        averagePrice,
+    }: {
+        quantity: number;
+        averagePrice: number;
+    }) => {
+        if (!state.selectedStockName) return;
+        const previousStocks = state.stocks;
+        dispatch({
+            type: "UPDATE_STOCK",
+            stockName: state.selectedStockName,
+            quantity,
+            averagePrice,
+        });
+
+        if (!state.userId) {
+            return;
+        }
+
+        try {
+            const symbol = resolveStockSymbol(state.selectedStockName);
+            if (!symbol) {
+                throw new Error("알 수 없는 종목입니다.");
+            }
+
+            await api.updatePortfolio(state.userId, {
+                holdings: [
+                    {
+                        symbol,
+                        quantity,
+                        avg_price: averagePrice,
+                    },
+                ],
+            });
+            await hydrateStateFromBackend(state.userId);
+        } catch (error) {
+            console.error("종목 정보를 업데이트하지 못했습니다:", error);
+            dispatch({ type: "SET_STOCKS", stocks: previousStocks });
+            throw error instanceof Error ? error : new Error("종목 정보를 저장하지 못했습니다.");
+        }
+    };
+
     return (
         <div className="bg-white min-h-screen">
             <InvestmentStyleProvider investmentStyle={state.investmentStyle || "공격형"}>
@@ -625,6 +705,21 @@ export default function App() {
                     <StockManagement
                         onBack={() => goBack("settings")}
                         stocks={state.stocks}
+                        onSelectStock={handleOpenStockManagementDetail}
+                    />
+                )}
+                {state.currentPage === "settings-stock-detail" && (
+                    <StockManagementDetail
+                        stock={
+                            state.selectedStockName
+                                ? state.stocks.find((stock) => stock.name === state.selectedStockName)
+                                : undefined
+                        }
+                        onBack={() => handleCloseStockManagementDetail("settings-stocks")}
+                        onSave={async (data) => {
+                            await handleStockDetailSave(data);
+                            handleCloseStockManagementDetail("settings-stocks");
+                        }}
                     />
                 )}
                 {state.currentPage === "add-stock" && (
