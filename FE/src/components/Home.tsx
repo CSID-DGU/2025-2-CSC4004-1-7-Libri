@@ -37,6 +37,7 @@ interface HomeProps {
     investmentStyle: "공격형" | "안정형";
     onOpenSettings: () => void;
     userId?: number | null;
+    userCreatedAt?: string | null;
 }
 
 const formatNumber = (value: number) => value.toLocaleString();
@@ -383,6 +384,7 @@ export default function Home({
     investmentStyle,
     onOpenSettings,
     userId,
+    userCreatedAt,
 }: HomeProps) {
     const [currentView, setCurrentView] = useState<"list" | "detail">("list");
     const [selectedStockName, setSelectedStockName] = useState("");
@@ -588,6 +590,7 @@ export default function Home({
                 initialInvestment={effectiveInitialInvestment}
                 onBack={handleBackToList}
                 onSimulatedHoldingsUpdate={handleSimulatedHoldingsUpdate}
+                userCreatedAt={userCreatedAt}
             />
         );
     }
