@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/layout/Header";
 import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
+import { api } from "@/api/client";
+import { resolveStockSymbol } from "@/lib/stocks";
 import type { ManagedStock } from "./StockManagement";
 
 interface StockManagementDetailProps {
     stock?: ManagedStock;
     onBack?: () => void;
     onSave?: (data: { quantity: number; averagePrice: number }) => Promise<void> | void;
+    userId?: number | null;
 }
 
-export default function StockManagementDetail({ stock, onBack, onSave }: StockManagementDetailProps) {
+export default function StockManagementDetail({
+    stock,
+    onBack,
+    onSave,
+    userId,
+}: StockManagementDetailProps) {
     const [quantity, setQuantity] = useState<string>(stock?.quantity ? String(stock.quantity) : "");
     const [averagePrice, setAveragePrice] = useState<string>(
         stock?.averagePrice ? String(stock.averagePrice) : "",
@@ -39,19 +47,77 @@ export default function StockManagementDetail({ stock, onBack, onSave }: StockMa
 
     const handleSave = async () => {
         if (parsedQuantity === null || parsedAveragePrice === null || submitting) return;
-        if (!onSave) {
-            onBack?.();
+        if (!userId) {
+            setError("사용자 정보를 찾을 수 없습니다.");
             return;
         }
+        if (!stock) {
+            setError("종목 정보를 찾을 수 없습니다.");
+            return;
+        }
+
+        const symbol = resolveStockSymbol(stock.name);
+        if (!symbol) {
+            setError("유효한 종목이 아닙니다.");
+            return;
+        }
+
+        const currentQuantity = stock.quantity ?? 0;
+        const currentAveragePrice = stock.averagePrice ?? 0;
+
+        if (parsedQuantity === currentQuantity && parsedAveragePrice === currentAveragePrice) {
+            setError("변경된 내용이 없습니다.");
+            return;
+        }
+
+        const sellStock = async (sellQuantity: number, priceReference: number) => {
+            if (sellQuantity <= 0) return;
+            await api.sellHolding(userId, {
+                symbol,
+                quantity: sellQuantity,
+                sell_price: priceReference > 0 ? priceReference : 1,
+            });
+        };
+
+        const buyStock = async (buyQuantity: number, price: number) => {
+            if (buyQuantity <= 0) return;
+            await api.addHolding(userId, {
+                symbol,
+                quantity: buyQuantity,
+                avg_price: price,
+            });
+        };
 
         setSubmitting(true);
         setError(null);
         try {
-            await onSave({ quantity: parsedQuantity, averagePrice: parsedAveragePrice });
+            if (parsedAveragePrice !== currentAveragePrice) {
+                if (currentQuantity > 0) {
+                    await sellStock(currentQuantity, parsedAveragePrice);
+                }
+                if (parsedQuantity > 0) {
+                    await buyStock(parsedQuantity, parsedAveragePrice);
+                }
+            } else {
+                const quantityDiff = parsedQuantity - currentQuantity;
+                if (quantityDiff > 0) {
+                    await buyStock(quantityDiff, currentAveragePrice || parsedAveragePrice);
+                } else if (quantityDiff < 0) {
+                    await sellStock(Math.abs(quantityDiff), currentAveragePrice || parsedAveragePrice);
+                }
+            }
+
+            if (onSave) {
+                await onSave({ quantity: parsedQuantity, averagePrice: parsedAveragePrice });
+            }
+            onBack?.();
         } catch (saveError) {
             console.error("종목 정보를 저장하지 못했습니다:", saveError);
-            setError(saveError instanceof Error ? saveError.message : "저장에 실패했습니다.");
-            return;
+            const message =
+                saveError instanceof Error
+                    ? saveError.message
+                    : "저장에 실패했습니다.";
+            setError(message);
         } finally {
             setSubmitting(false);
         }
