@@ -600,6 +600,7 @@ export default function Home({
                 onBack={handleBackToList}
                 onSimulatedHoldingsUpdate={handleSimulatedHoldingsUpdate}
                 userCreatedAt={userCreatedAt}
+                userId={userId}
             />
         );
     }
