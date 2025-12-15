@@ -9,6 +9,9 @@ import InitialInvestmentInput from "./components/InitialInvestmentInput";
 import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
 import Settings from "./components/Settings";
+import PortfolioSettings from "./components/PortfolioSettings";
+import StockManagement from "./components/StockManagement";
+import StockManagementDetail from "./components/StockManagementDetail";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
 import {
@@ -27,6 +30,9 @@ type Page =
     | "style"
     | "home"
     | "settings"
+    | "settings-portfolio"
+    | "settings-stocks"
+    | "settings-stock-detail"
     | "add-stock"
     | "add-quantity"
     | "add-price";
@@ -56,6 +62,7 @@ interface State {
     userEmail: string | null;
     onboardingCompleted: boolean;
     userCreatedAt: string | null;
+    selectedStockName: string | null;
 }
 
 type Action =
@@ -72,7 +79,14 @@ type Action =
     | { type: "SET_USER_CREATED_AT"; createdAt: string | null }
     | { type: "SET_ONBOARDING_STATUS"; completed: boolean }
     | { type: "LOGOUT" }
-    | { type: "HYDRATE_FROM_STORAGE"; payload: Partial<Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">> };
+    | { type: "SET_SELECTED_STOCK"; stockName: string | null }
+    | { type: "UPDATE_STOCK"; stockName: string; quantity: number; averagePrice: number }
+    | {
+          type: "HYDRATE_FROM_STORAGE";
+          payload: Partial<
+              Pick<State, "initialInvestment" | "investmentStyle" | "stocks" | "onboardingForm" | "addStockForm" | "onboardingCompleted">
+          >;
+      };
 
 const initialState: State = {
     currentPage: "start",
@@ -85,6 +99,7 @@ const initialState: State = {
     userEmail: null,
     onboardingCompleted: false,
     userCreatedAt: null,
+    selectedStockName: null,
 };
 
 function createStock(form: FormData, logoUrl?: string): Stock {
@@ -203,6 +218,22 @@ function reducer(state: State, action: Action): State {
             return { ...state, userCreatedAt: action.createdAt };
         case "SET_ONBOARDING_STATUS":
             return { ...state, onboardingCompleted: action.completed };
+        case "SET_SELECTED_STOCK":
+            return { ...state, selectedStockName: action.stockName };
+        case "UPDATE_STOCK":
+            return {
+                ...state,
+                stocks: state.stocks.map((stock) =>
+                    stock.name === action.stockName
+                        ? {
+                              ...stock,
+                              quantity: action.quantity,
+                              averagePrice: action.averagePrice,
+                              totalValue: action.quantity * action.averagePrice,
+                          }
+                        : stock,
+                ),
+            };
         case "LOGOUT":
             return {
                 ...initialState,
@@ -274,12 +305,11 @@ export default function App() {
                     });
                 }
 
-                const initialValue =
-                    typeof portfolio.total_asset === "number"
-                        ? portfolio.total_asset
-                        : portfolio.current_capital;
+                const initialValue = typeof portfolio.initial_capital === "number"
+                    ? portfolio.initial_capital
+                    : null;
 
-                if (typeof initialValue === "number" && !Number.isNaN(initialValue)) {
+                if (initialValue !== null) {
                     dispatch({
                         type: "SET_INITIAL_INVESTMENT",
                         value: Math.round(initialValue).toString(),
@@ -476,6 +506,30 @@ export default function App() {
             dispatch({ type: "LOGOUT" });
             return;
         }
+        if (menu === "portfolio") {
+            goToPage("settings-portfolio");
+            return;
+        }
+        if (menu === "stocks") {
+            goToPage("settings-stocks");
+        }
+    };
+
+    const handlePortfolioSettingsSave = async ({
+        investmentAmount,
+        investmentStyle,
+    }: {
+        investmentAmount: number;
+        investmentStyle: string;
+    }) => {
+        dispatch({ type: "SET_INITIAL_INVESTMENT", value: String(investmentAmount) });
+        if (investmentStyle === "공격형" || investmentStyle === "안정형") {
+            dispatch({ type: "SET_INVESTMENT_STYLE", style: investmentStyle as InvestmentStyle });
+        }
+        if (state.userId) {
+            await hydrateStateFromBackend(state.userId);
+        }
+        goToPage("settings");
     };
 
     // 종목 추가 플로우 핸들러
@@ -511,6 +565,36 @@ export default function App() {
     };
 
     const goBack = (page: Page) => goToPage(page);
+
+    const handleOpenStockManagementDetail = (stockName: string) => {
+        dispatch({ type: "SET_SELECTED_STOCK", stockName });
+        goToPage("settings-stock-detail");
+    };
+
+    const handleCloseStockManagementDetail = (page: Page = "settings-stocks") => {
+        dispatch({ type: "SET_SELECTED_STOCK", stockName: null });
+        goBack(page);
+    };
+
+    const handleStockDetailLocalUpdate = async ({
+        quantity,
+        averagePrice,
+    }: {
+        quantity: number;
+        averagePrice: number;
+    }) => {
+        if (!state.selectedStockName) return;
+        dispatch({
+            type: "UPDATE_STOCK",
+            stockName: state.selectedStockName,
+            quantity,
+            averagePrice,
+        });
+
+        if (state.userId) {
+            await hydrateStateFromBackend(state.userId);
+        }
+    };
 
     return (
         <div className="bg-white min-h-screen">
@@ -582,6 +666,36 @@ export default function App() {
                 )}
                 {state.currentPage === "settings" && (
                     <Settings onBack={() => goBack("home")} onSelectMenu={handleSettingsMenu} />
+                )}
+                {state.currentPage === "settings-portfolio" && (
+                    <PortfolioSettings
+                        onBack={() => goBack("settings")}
+                        onSave={handlePortfolioSettingsSave}
+                        initialInvestmentAmount={
+                            state.initialInvestment ? Number(state.initialInvestment) : undefined
+                        }
+                        initialInvestmentStyle={state.investmentStyle || undefined}
+                        userId={state.userId}
+                    />
+                )}
+                {state.currentPage === "settings-stocks" && (
+                    <StockManagement
+                        onBack={() => goBack("settings")}
+                        stocks={state.stocks}
+                        onSelectStock={handleOpenStockManagementDetail}
+                    />
+                )}
+                {state.currentPage === "settings-stock-detail" && (
+                    <StockManagementDetail
+                        userId={state.userId}
+                        stock={
+                            state.selectedStockName
+                                ? state.stocks.find((stock) => stock.name === state.selectedStockName)
+                                : undefined
+                        }
+                        onBack={() => handleCloseStockManagementDetail("settings-stocks")}
+                        onSave={handleStockDetailLocalUpdate}
+                    />
                 )}
                 {state.currentPage === "add-stock" && (
                     <Onboarding
