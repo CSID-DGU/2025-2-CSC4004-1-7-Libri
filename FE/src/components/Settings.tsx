@@ -12,7 +12,7 @@ interface MenuItem {
 }
 
 const menus: MenuItem[] = [
-    { label: "내 포트폴리오 관리", key: "portfolio" },
+    { label: "포트폴리오 관리", key: "portfolio" },
     { label: "종목 관리", key: "stocks" },
     { label: "로그아웃", key: "logout" },
 ];
@@ -20,7 +20,7 @@ const menus: MenuItem[] = [
 function Divider() {
     return (
         <div className="px-[20px]">
-            <div className="h-px w-full" style={{ backgroundColor: "var(--achromatic-200)" }} />
+            <div className="h-px w-full" style={{ backgroundColor: "#f6f8fb" }} />
         </div>
     );
 }
