@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ComponentType, type SVGProps } from 
 import Header from "@/components/layout/Header";
 import LightningIcon from "@/assets/icons/lightning.svg?react";
 import ShieldIcon from "@/assets/icons/shield.svg?react";
+import CloseCircleIcon from "@/assets/icons/close-circle.svg?react";
 
 interface PortfolioSettingsProps {
     onBack?: () => void;
@@ -130,29 +131,54 @@ export default function PortfolioSettings({
                     style={{ gap: "24px", marginTop: "16px", paddingInline: "20px" }}
                 >
                     <section className="flex flex-col px-5" style={{ gap: "12px" }}>
-                        <label className="body-1 tracking-[0.14px] text-[#151b26]">투자금</label>
-                        <div className="relative">
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                value={investmentAmount}
-                                onChange={(e) => handleInvestmentChange(e.target.value)}
-                                placeholder="예: 1,000,000"
-                                className="w-full rounded-[8px] label-1 text-achromatic-800 tracking-[0.14px] outline-none placeholder-body-2 placeholder-achromatic-500"
-                                style={{
-                                    paddingInline: "12px",
-                                    paddingBlock: "12px",
-                                    backgroundColor: "var(--component-background)",
-                                }}
-                            />
+                        <label
+                            className="body-3 tracking-[0.14px]"
+                            style={{ color: "var(--achromatic-500)" }}
+                        >
+                            투자금
+                        </label>
+                        <div className="flex items-center" style={{ gap: "10px" }}>
+                            <div className="relative w-full">
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={investmentAmount}
+                                    onChange={(e) => handleInvestmentChange(e.target.value)}
+                                    placeholder="예: 1,000,000"
+                                    className="w-full rounded-[8px] label-1 text-achromatic-800 tracking-[0.14px] outline-none placeholder-body-2 placeholder-achromatic-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                    style={{
+                                        paddingInline: "12px",
+                                        paddingBlock: "12px",
+                                        paddingRight: "40px",
+                                        backgroundColor: "var(--component-background)",
+                                    }}
+                                />
+                                {investmentAmount && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvestmentAmount("")}
+                                        aria-label="투자금 입력 값 지우기"
+                                        className="flex items-center justify-center"
+                                        style={{
+                                            position: "absolute",
+                                            top: "50%",
+                                            right: "8px",
+                                            transform: "translateY(-50%)",
+                                        }}
+                                    >
+                                        <CloseCircleIcon
+                                            style={{
+                                                color: "var(--achromatic-500)",
+                                                width: "20px",
+                                                height: "20px",
+                                            }}
+                                        />
+                                    </button>
+                                )}
+                            </div>
                             <span
-                                className="body-3 text-[#a1a4a8]"
-                                style={{
-                                    position: "absolute",
-                                    top: "50%",
-                                    right: "12px",
-                                    transform: "translateY(-50%)",
-                                }}
+                                className="title-1"
+                                style={{ color: "var(--achromatic-500)" }}
                             >
                                 원
                             </span>
@@ -160,7 +186,12 @@ export default function PortfolioSettings({
                     </section>
 
                     <section className="flex flex-col px-5" style={{ gap: "12px" }}>
-                        <p className="body-1 tracking-[0.14px] text-[#151b26]">투자 성향</p>
+                        <p
+                            className="body-3 tracking-[0.14px]"
+                            style={{ color: "var(--achromatic-500)" }}
+                        >
+                            투자 성향
+                        </p>
                         <div className="flex flex-col" style={{ gap: "12px" }}>
                             {STYLE_OPTIONS.map((option) => (
                                 <StyleOptionCard
