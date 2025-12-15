@@ -18,6 +18,7 @@ import {
     resolveStockSymbol,
     mapSymbolToDisplayName,
 } from "./lib/stocks";
+import { mapBackendStyleToDisplay, mapDisplayStyleToBackend } from "@/utils/investmentStyle";
 
 type Page =
     | "start"
@@ -112,27 +113,6 @@ function createStock(form: FormData, logoUrl?: string): Stock {
         totalValue: quantity * price,
         logoUrl,
     };
-}
-
-type BackendInvestmentStyle = "aggressive" | "conservative";
-
-const BACKEND_TO_DISPLAY_STYLE: Record<BackendInvestmentStyle, InvestmentStyle> = {
-    aggressive: "공격형",
-    conservative: "안정형",
-};
-
-const DISPLAY_TO_BACKEND_STYLE: Record<InvestmentStyle, BackendInvestmentStyle> = {
-    공격형: "aggressive",
-    안정형: "conservative",
-};
-
-function mapBackendStyleToDisplay(style?: string | null): InvestmentStyle | "" {
-    if (!style) return "";
-    return BACKEND_TO_DISPLAY_STYLE[style as BackendInvestmentStyle] ?? "";
-}
-
-function mapDisplayStyleToBackend(style: string): BackendInvestmentStyle | null {
-    return DISPLAY_TO_BACKEND_STYLE[style as InvestmentStyle] ?? null;
 }
 
 function parsePositiveInteger(value: string): number | null {
