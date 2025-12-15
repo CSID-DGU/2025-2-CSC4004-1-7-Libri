@@ -10,6 +10,7 @@ import InvestmentStyleSelection from "./components/InvestmentStyleSelection";
 import Home from "./components/Home";
 import Settings from "./components/Settings";
 import PortfolioSettings from "./components/PortfolioSettings";
+import StockManagement from "./components/StockManagement";
 import { InvestmentStyle, InvestmentStyleProvider } from "./contexts/InvestmentStyleContext";
 import { api } from "./api/client";
 import {
@@ -29,6 +30,7 @@ type Page =
     | "home"
     | "settings"
     | "settings-portfolio"
+    | "settings-stocks"
     | "add-stock"
     | "add-quantity"
     | "add-price";
@@ -479,6 +481,10 @@ export default function App() {
         }
         if (menu === "portfolio") {
             goToPage("settings-portfolio");
+            return;
+        }
+        if (menu === "stocks") {
+            goToPage("settings-stocks");
         }
     };
 
@@ -613,6 +619,12 @@ export default function App() {
                         }
                         initialInvestmentStyle={state.investmentStyle || undefined}
                         userId={state.userId}
+                    />
+                )}
+                {state.currentPage === "settings-stocks" && (
+                    <StockManagement
+                        onBack={() => goBack("settings")}
+                        stocks={state.stocks}
                     />
                 )}
                 {state.currentPage === "add-stock" && (
