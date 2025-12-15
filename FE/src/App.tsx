@@ -483,7 +483,7 @@ export default function App() {
         }
     };
 
-    const handlePortfolioSettingsSave = ({
+    const handlePortfolioSettingsSave = async ({
         investmentAmount,
         investmentStyle,
     }: {
@@ -493,6 +493,9 @@ export default function App() {
         dispatch({ type: "SET_INITIAL_INVESTMENT", value: String(investmentAmount) });
         if (investmentStyle === "공격형" || investmentStyle === "안정형") {
             dispatch({ type: "SET_INVESTMENT_STYLE", style: investmentStyle as InvestmentStyle });
+        }
+        if (state.userId) {
+            await hydrateStateFromBackend(state.userId);
         }
         goToPage("settings");
     };
@@ -610,6 +613,7 @@ export default function App() {
                             state.initialInvestment ? Number(state.initialInvestment) : undefined
                         }
                         initialInvestmentStyle={state.investmentStyle || undefined}
+                        userId={state.userId}
                     />
                 )}
                 {state.currentPage === "add-stock" && (
