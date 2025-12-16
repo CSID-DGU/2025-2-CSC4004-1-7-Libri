@@ -153,3 +153,7 @@ sequenceDiagram
 **🔗 [Libri 서비스 바로가기](https://libri-23e87.web.app/)**
 
 ---
+
+## 📹 리브리 소개 영상
+
+**🔗 [Libri 소개 영상 바로가기](https://youtu.be/Gkj8syWC7s0)**
